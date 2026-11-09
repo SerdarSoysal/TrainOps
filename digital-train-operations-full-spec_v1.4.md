@@ -13,6 +13,7 @@ The main body is written to be read by a person. **Appendix A** is a compact, ma
 - **Roster entry:** the cold-start roster is imported from CSV files. Single cars are added or retired on the web page.
 - **Spot editing:** the edit tool can now also set a spot's state (Section 14).
 - **West staging stays a pool:** the software does not track which staging track a car is on.
+- **Plain language everywhere:** every value a person reads or types uses plain words, never single letters or codes (Section 16).
 
 Version 1.3 had settled how the manifests are made up: a random Eastbound length of 12–20 cars and exception overload trains. See Section 19 for the full history.
 
@@ -65,7 +66,7 @@ West is to the left of the schematic and East to the right.
 Each car record holds:
 - Reporting mark and number, and car type.
 - **Location:** a world (East loop or West staging), a yard track, a spot at an industry, or in a train (westbound manifest, eastbound manifest, or the local).
-- **Load status:** `loaded`, `empty`, or `n/a`. It is `n/a` for continuing cars and for any car in a world; there, load status is irrelevant.
+- **Load status:** `loaded`, `empty`, or `not tracked`. It is `not tracked` for continuing cars and for any car in a world; there, load status is irrelevant.
 - **Last industry that loaded it.** Used by the return-to-shipper rule (Section 7).
 - **The world it arrived from** (East or West). Set when it is set out from a manifest, and used to send unwanted empties back (Section 8).
 - **Assigned spot**, if any. Set when the car is chosen for a Local block; cleared when its set-out is signalled done. A car that wasn't delivered keeps its assigned spot (Section 8).
@@ -93,14 +94,15 @@ An **industry** is a name plus a list of **spots**. All behavior lives in the sp
 
 ```json
 {
-  "spot_id": "...",
+  "spot_id": "...",                  // internal key, never shown to operators
+  "name": "Loading door 2",          // what operators see in every list and display
   "requirement_mode": "fixed | random",
 
   // --- FIXED MODE ---
   "car_type": "...",
   "direction": "incoming | outgoing",
-  "source": "E | W",                 // incoming only: which direction the loaded car comes from
-  "pattern": ["E", "E", "W"],        // outgoing only: ordered, repeating destination list
+  "source": "East | West",           // incoming only: which direction the loaded car comes from
+  "pattern": ["East", "East", "West"], // outgoing only: ordered, repeating destination list
   "position": 0,                     // RUNTIME STATE: pointer into pattern
   "disruption_chance": 0.0,          // chance per completion to flip the pattern's destination
   "base_processing_days": 2,
@@ -112,8 +114,8 @@ An **industry** is a name plus a list of **spots**. All behavior lives in the sp
     {
       "car_type": "...",
       "direction": "incoming | outgoing",
-      "source_weights": {"E": 0.5, "W": 0.5},       // incoming: rolled fresh on every draw
-      "destination_weights": {"E": 0.5, "W": 0.5},  // outgoing: rolled fresh on every draw
+      "source_weights": {"East": 0.5, "West": 0.5},       // incoming: rolled fresh on every draw
+      "destination_weights": {"East": 0.5, "West": 0.5},  // outgoing: rolled fresh on every draw
       "weight": 3,                                   // chance of this requirement being drawn
       "base_processing_days": 2,                     // in random mode these three fields live here
       "delay_chance": 0.1,
@@ -164,16 +166,16 @@ East and West are **real physical places**, each standing in for the rest of the
 | Rebuild | The train is re-sorted using the yard tracks. Its cars must never mix with real yard cars. Nothing is added or removed; every car rides out. The rebuild ends with the train back in the loop, ready for step 1 | The eastbound manifest is built from any cars in staging. The rest stay as spares |
 | Planning consequence | Tomorrow's East-supplied cars can only be cars sent East **today** | The software can choose freely from the whole pool |
 
-- Inside a world, loads are `n/a`. A car's load is **assigned when it is chosen for a Local block** (Section 7).
+- Inside a world, loads are `not tracked`. A car's load is **assigned when it is chosen for a Local block** (Section 7).
 - A world stands in for many places, so variety comes from re-sorting, reassigning loads, and swapping engines.
 
 ## 7. Loads
 
-- **Only cars going to or coming from the local have a load status.** Continuing cars and cars in a world are `n/a`.
+- **Only cars going to or coming from the local have a load status.** Continuing cars and cars in a world are `not tracked`.
 - **When a car is chosen for a Local block, the target spot sets its load:** loaded for an incoming spot, empty for an outgoing spot.
 - **A car that isn't delivered keeps the load it was given.**
 - **Return-to-shipper rule:** if a car's next assignment is the **same industry that last loaded it**, it must arrive **empty**, so it can only go to an outgoing spot there. For any other industry it can arrive loaded or empty as needed.
-- **Cars pulled from industries keep their real load** while they sit on the Eastbound or Westbound yard tracks. Once they enter a world, the load becomes `n/a`.
+- **Cars pulled from industries keep their real load** while they sit on the Eastbound or Westbound yard tracks. Once they enter a world, the load becomes `not tracked`.
 - **Unwanted empties never pile up.** Empties go into a world and come back as whatever is needed later.
 
 ## 8. Car Flow To and From the Industries
@@ -313,11 +315,11 @@ WESTBOUND MANIFEST — switcher
 The local takes **specific** cars from the Locals track. The order of cars in the local train doesn't matter. Each move has its own signal; moves at different industries can be done in any order. Where a spot has both, its set-out unlocks only after its pull is done.
 ```
 INDUSTRY #1
-  Pull  BNSF 72281 (boxcar, loaded)  ← spot brewery_out_2        [ done ]
-  Spot  CSXT 14420 (boxcar, empty)   → spot brewery_out_1        [ done ]
+  Pull  BNSF 72281 (boxcar, loaded)  ← Loading door 2           [ done ]
+  Spot  CSXT 14420 (boxcar, empty)   → Loading door 1           [ done ]
 TRANSFER FACILITY
-  Pull  TILX 30018 (tanker, empty)   ← spot transfer_tanker      [ done ]
-  Spot  GATX 7721 (tanker, loaded)   → spot transfer_tanker      [ done ]  (after pull)
+  Pull  TILX 30018 (tanker, empty)   ← Tank car unloading       [ done ]
+  Spot  GATX 7721 (tanker, loaded)   → Tank car unloading       [ done ]  (after pull)
                                                        [ Local back in yard ]
 ```
 
@@ -327,7 +329,7 @@ Built from what actually happened: every car the local pulled, plus every car it
 YARD JOB — sort local's returned cars (on the main)
   → Eastbound track:  BNSF 72281 boxcar (loaded)
   → Westbound track:  UP 41230 hopper (loaded)
-  → Westbound track:  TILX 30018 tanker (empty, returning to origin W)
+  → Westbound track:  TILX 30018 tanker (empty, returning to West staging)
   → Locals track:     ATSF 5521 boxcar (empty, held for reuse)
   → Locals track:     GATX 7721 tanker (loaded, not delivered, retry next run)
                                                        [ B done ]
@@ -366,7 +368,7 @@ YARD JOB — sort local's returned cars (on the main)
   - **Undoing a signal:** the edit tool is also how a wrongly pressed signal is undone. Undo is never done from the physical buttons.
 - **Persistence:** every signal and every edit is saved the moment it happens. Turning the system off at any point loses nothing.
 - **Cold start**, done once or after a deliberate reset:
-  1. **Import the roster from two CSV files.** The car file lists each car's mark, number, type and world, which says whether it is physically in the East loop or West staging. The engine file lists each engine's mark, number, model and pool. The formats are in Section 16.
+  1. **Import the roster from two CSV files.** The car file lists each car's mark, number, type and location, which says whether it is physically in East staging (the loop) or West staging. The engine file lists each engine's mark, number, model, pool and location (Storage, East staging or West staging). The formats are in Section 16.
   2. Every spot and yard track starts empty, and the industries fill up over the first few sessions.
   3. The software produces the first session's lists.
 - **Roster changes**, made on the web page with no reset needed:
@@ -385,30 +387,33 @@ YARD JOB — sort local's returned cars (on the main)
 
 The model **stores decisions and current positions only. Everything else is worked out when it is needed.** That way a list can never drift out of step with the records: after an edit, every list is simply correct the next time it is shown.
 
+**Plain language everywhere.** Several operators will use the system, so every value a person reads or types uses plain words, never single letters or codes. That applies to the configuration file, the CSV files, the web page, the printed sheets and the database itself. For example: "East staging", not "E"; "Westbound manifest", not "WB"; "not tracked", not "n/a". Spots and industries are always shown by their `name`, never by their internal id. Words typed into a file are matched without regard to capitals.
+
 ### 16.1 Configuration: a YAML file
 The configuration never changes while the system runs. It is a file you edit by hand and keep in git, for example `config.yaml`:
 
 ```yaml
 settings:
-  hold_days_on_locals: 2        # N, Section 8
-  eb_length_min: 12             # Section 9
-  eb_length_max: 20
-  train_nominal_max: 20         # above this = exception overload train
-  three_engine_from: 16         # cars; 15 or fewer = 2 engines
+  hold_days_on_locals: 2           # N, Section 8
+  eastbound_length_min: 12         # Section 9
+  eastbound_length_max: 20
+  train_nominal_max: 20            # above this = exception overload train
+  three_engines_from: 16           # cars; 15 or fewer = 2 engines
   capacity:
-    east_loop: 30
-    west_staging: 70            # both car tracks together (pool)
+    east_staging: 30               # the hidden return loop
+    west_staging: 70               # both car tracks together (pool)
     yard_track: 35
 
 industries:
-  - id: ind1
+  - id: industry_1
     name: "Industry #1"
     spots:
-      - spot_id: ind1_out_1
+      - spot_id: industry_1_door_1
+        name: "Loading door 1"
         requirement_mode: fixed
         car_type: boxcar
         direction: outgoing
-        pattern: [E, E, W]
+        pattern: [East, East, West]
         disruption_chance: 0.1
         base_processing_days: 2
         delay_chance: 0.1
@@ -416,6 +421,7 @@ industries:
       # ... further spots; random-mode spots use possible_requirements (Section 5)
 ```
 
+- **All settings are changed in this file,** including the Eastbound length range and every capacity. The values shown are the defaults.
 - **The spot fields are exactly the Section 5 schema, minus `position`.** `position` is runtime state, so it lives in the database.
 - **Reloading the configuration:**
   - A spot that is new in the file gets a fresh state row (EMPTY_AWAITING_CAR).
@@ -428,22 +434,24 @@ The program is written in Python, using the standard `sqlite3` module and no ORM
 
 | Table | Fields | Notes |
 |---|---|---|
-| `session` (one row) | day number; done flags: chore W, chore E, A, local back, B, C; local has work today | The current job is worked out from the flags |
+| `session` (one row) | day number; done flags: West chore, East chore, job A, local back, job B, job C; local has work today | The current job is worked out from the flags |
 | `car` | id, mark, number, type, location (`loc_kind`, `loc_ref`), `seq`, load, last loaded at industry, origin world, assigned spot, destination world, days held on Locals | Mark + number is unique. **Destination world** is set when a loaded car is pulled from an outgoing spot, so job B knows where it goes |
 | `engine` | id, mark, number, model (optional), pool (local / switcher / manifest), location, `seq` | |
 | `spot_state` | spot id, state, days left (processing or cooldown), pattern position, current random requirement (which one + rolled direction), outgoing destination, waiting since day, next delay roll, next random requirement | **Waiting since day** drives oldest-first priority. The **next** fields are the day-early rolls (Section 5) |
-| `consist_plan` | train (WB / EB / LOCAL), seq, car or engine | Written at the day advance. Applied by the matching signal: chore W, chore E, or A for the local. Cleared at the next day advance |
+| `consist_plan` | train (Westbound manifest / Eastbound manifest / Local), seq, car or engine | Written at the day advance. Applied by the matching signal: West chore done, East chore done, or job A done for the Local. Cleared at the next day advance |
 
 ### 16.3 Locations
 Cars and engines use the same location scheme:
 
 | `loc_kind` | `loc_ref` | `seq` means |
 |---|---|---|
-| `world` | E, W | not used |
-| `yard` | Eastbound, Westbound, Locals | order of arrival (oldest first, for the capacity fallback in Section 9) |
-| `spot` | spot id | not used |
-| `train` | WB, EB, LOCAL | position, head to rear; engines lead first |
-| `storage` | none (engines only) | not used |
+| `world` | East staging, West staging | not used |
+| `yard` | Eastbound track, Westbound track, Locals track | order of arrival (oldest first, for the capacity fallback in Section 9) |
+| `spot` | the spot (shown by its name) | not used |
+| `train` | Westbound manifest, Eastbound manifest, Local | position, head to rear; engines lead first |
+| `storage` | Storage (engines only) | not used |
+
+- **East staging is the hidden return loop.** That is its name in every list and value.
 
 - **West staging is a pool.** The software doesn't track which staging track a car is on. Cars are found by number.
 - **A train exists only from its chore signal until it arrives.** When it arrives, its cars and engines become part of that world. The local's train exists from A done to B done.
@@ -458,10 +466,16 @@ Cars and engines use the same location scheme:
 
 ### 16.5 Cold-start CSV files
 ```
-cars.csv      mark,number,type,world          world = E or W
-engines.csv   mark,number,model,pool[,world]  pool = local, switcher or manifest;
-                                             world = E or W, blank = storage
+cars.csv      mark,number,type,location        location = East staging or West staging
+engines.csv   mark,number,model,pool,location  pool = local, switcher or manifest
+                                              location = Storage, East staging or West staging
 ```
+Example rows:
+```
+cars.csv      CSXT,14420,boxcar,West staging
+engines.csv   BNSF,7710,ES44AC,manifest,Storage
+```
+Every column is required except `model`, which can be left empty if unknown.
 
 ## 17. Still Open
 
@@ -514,9 +528,10 @@ date: 2026-11-09
 supersedes: [full-spec_v1.3.md, full-spec_v1.2.md, full-spec_v1.1.md, checkpoint_7-13-26.md, delta_11-06-26.md]
 resume_instruction: "Read this appendix only; main body = human prose of same content."
 next_version: "1.5 (new file digital-train-operations-full-spec_v1.5.md)"
-changes_from_1.3: [data model added (section data_model), cold start via CSV import, roster add/retire via web page, edit tool can set spot state, W staging = pool only (no per-track tracking)]
+changes_from_1.3: [data model added (section data_model), cold start via CSV import, roster add/retire via web page, edit tool can set spot state, W staging = pool only (no per-track tracking), plain-language values everywhere (no single letters/codes)]
 changes_from_1.2: [EB length random 12-20 leaving W (replaces W_balance), pickup blocks never left behind, exception overload train, 20 = nominal not hard cap, confirmed local blocks demand-driven + WB non-local cars all continue W]
 user_style: "Dictates via speech-to-text; literal 'Period.'/'comma'/'colon' words are punctuation artifacts."
+plain_language_rule: "HARD RULE (user, 2026-11-09): every value a person reads or types (config YAML, CSV, web page, printed sheets, DB values) uses plain words, never single letters/codes. E->'East'/'East staging', W->'West'/'West staging', WB/EB->'Westbound manifest'/'Eastbound manifest', LOCAL->'Local', n/a->'not tracked'. Spots/industries shown by name, never id. Typed values matched case-insensitively. Shorthand in THIS appendix is AI-facing only."
 status: "design + data model complete except industry config data + hardware node design (non-blocking). Next: first code."
 
 philosophy:
@@ -547,8 +562,8 @@ layout:
   max_train: {cars_nominal: 20, engines: 3, overload_allowed: true, hard_limits: "E loop ~30 cars; W staging capacity"}
 
 roster:
-  car_fields: [mark, number, type, location, load(loaded|empty|n/a), last_loaded_at_industry, origin_world(E|W), assigned_spot(nullable), days_held_on_locals, dest_world(nullable; set on pull of loaded car from outgoing spot)]
-  location_values: [world_E, world_W, "yard:<Eastbound|Westbound|Locals>", "spot:<id>", "in_train:<WB|EB|local>"]
+  car_fields: [mark, number, type, location, load(loaded|empty|not tracked), last_loaded_at_industry, origin_world(East staging|West staging), assigned_spot(nullable), days_held_on_locals, dest_world(nullable; set on pull of loaded car from outgoing spot)]
+  location_values: see data_model.locations
   any_car_type_can_serve_industry: true  # role from config; unused types = through-only
   engine_groups:
     local_pool: {per_train: 2, pick: random}
@@ -558,7 +573,7 @@ roster:
 
 spots:
   capacity: 1 car
-  schema: "fixed: car_type,direction,source|pattern,position,disruption_chance,base_processing_days,delay_chance,cooldown_days; random: possible_requirements[car_type,direction,source_weights|destination_weights,weight,base_processing_days,delay_chance,cooldown_days]"
+  schema: "all: spot_id (internal), name (shown); fixed: car_type,direction,source|pattern,position,disruption_chance,base_processing_days,delay_chance,cooldown_days; random: possible_requirements[car_type,direction,source_weights|destination_weights,weight,base_processing_days,delay_chance,cooldown_days]; direction values East|West"
   states: [EMPTY_AWAITING_CAR, PROCESSING, READY_FOR_PICKUP, COOLDOWN]
   transitions:
     EMPTY->PROCESSING: on setout_done signal
@@ -580,16 +595,16 @@ spots:
 
 worlds:
   rebuilt: before every session (chore)
-  loads_inside: n/a
+  loads_inside: not tracked
   E: closed set = exactly cars of prior EB manifest; re-sorted via yard tracks, never mixed with yard cars; nothing added/removed; all ride out; rebuild ends with train back in loop for step 1 (CONFIRMED)
   W: pool; EB built from any staging cars; rest stay as spares; WB arrival couples onto spares OK
 
 loads:
-  tracked_only_for: local-bound/local-originated cars; continuing + world cars = n/a
+  tracked_only_for: local-bound/local-originated cars; continuing + world cars = not tracked
   assign_at: Local-block selection; incoming spot -> loaded; outgoing spot -> empty
   undelivered: keeps assigned load
   return_to_shipper: if target industry == last_loaded_at -> must be empty (outgoing spot only)
-  pulled_cars: keep real load on Eastbound/Westbound tracks; -> n/a on entering world
+  pulled_cars: keep real load on Eastbound/Westbound tracks; -> not tracked on entering world
 
 supply_to_spots:
   incoming: loaded car from spot's source world (fixed source | rolled source)
@@ -678,28 +693,30 @@ data_model:
   principle: store decisions + current positions only; derive everything else on demand (lists never drift)
   impl: Python, stdlib sqlite3, no ORM
   config:  # YAML file (e.g. config.yaml), hand-edited, in git, static at runtime
-    settings: {hold_days_on_locals: 2, eb_length_min: 12, eb_length_max: 20, train_nominal_max: 20, three_engine_from: 16, capacity: {east_loop: 30, west_staging: 70, yard_track: 35}}
-    industries: "[{id, name, spots: [section-5 spot schema minus position]}]"
+    settings: {hold_days_on_locals: 2, eastbound_length_min: 12, eastbound_length_max: 20, train_nominal_max: 20, three_engines_from: 16, capacity: {east_staging: 30, west_staging: 70, yard_track: 35}}
+    industries: "[{id, name, spots: [section-5 spot schema minus position; spot_id internal, name shown]}]"
     reload: new spot -> fresh state row (EMPTY); removed spot -> reported, state ignored; shorter pattern -> position wraps
     car_types: free text; exact match car.type == spot car_type
   tables:
-    session: "single row: day, chore_w_done, chore_e_done, a_done, local_back, b_done, c_done, local_has_work; current job derived from flags"
+    session: "single row: day, west_chore_done, east_chore_done, job_a_done, local_back, job_b_done, job_c_done, local_has_work; current job derived from flags"
     car: "id, mark, number (unique mark+number), type, loc_kind, loc_ref, seq, load, last_loaded_industry, origin_world, assigned_spot, dest_world, days_held"
     engine: "id, mark, number, model(opt), pool(local|switcher|manifest), loc_kind, loc_ref, seq"
     spot_state: "spot_id, state, days_left, position, req_index, req_dir, out_dest, waiting_since_day, next_delay, next_req_index, next_req_dir"
-    consist_plan: "train(WB|EB|LOCAL), seq, car_id|engine_id; written at day advance; applied by chore_W/chore_E/A_done; cleared next day advance"
-  locations:  # shared by car + engine
-    world: {ref: [E, W], seq: unused}
-    yard: {ref: [Eastbound, Westbound, Locals], seq: arrival order (oldest first)}
-    spot: {ref: spot_id, seq: unused}
-    train: {ref: [WB, EB, LOCAL], seq: "head->rear; engines lead first"}
-    storage: {ref: none, engines_only: true}
+    consist_plan: "train(Westbound manifest|Eastbound manifest|Local), seq, car_id|engine_id; written at day advance; applied by west_chore/east_chore/job_a done; cleared next day advance"
+  locations:  # shared by car + engine; values are plain language
+    world: {ref: [East staging, West staging], seq: unused, note: "East staging = hidden return loop"}
+    yard: {ref: [Eastbound track, Westbound track, Locals track], seq: arrival order (oldest first)}
+    spot: {ref: spot_id (displayed by spot name), seq: unused}
+    train: {ref: [Westbound manifest, Eastbound manifest, Local], seq: "head->rear; engines lead first"}
+    storage: {ref: Storage, engines_only: true}
     W_staging: pool only; no per-track tracking  # CONFIRMED
     train_lifetime: "manifest: chore signal -> arrival (dissolves into world); LOCAL: A_done -> B_done"
   derived_not_stored: [local block = manifest cars with assigned_spot, job A/C pickup = whole track at job time (C provisional = prediction), local list = READY spots + assigned cars, job B routing (section 8 rules), chore-sheet engine moves = plan vs current location, spot display text, forecast, capacity/length checks]
   csv:
-    cars: "mark,number,type,world  (world E|W)"
-    engines: "mark,number,model,pool[,world]  (pool local|switcher|manifest; world E|W, blank=storage)"
+    cars: "mark,number,type,location  (location East staging|West staging)"
+    engines: "mark,number,model,pool,location  (pool local|switcher|manifest; location Storage|East staging|West staging)"
+    required: all columns except engine model (may be empty)
+    example: ["CSXT,14420,boxcar,West staging", "BNSF,7710,ES44AC,manifest,Storage"]
   backups: none (loss -> cold start)
 
 platform:
@@ -739,10 +756,14 @@ confirmed_2026-11-09_data_model:
   - W staging pool only
   - cold start via CSV; single add/retire via web page
   - edit tool can set spot state
+  - eb_length_min/max are config settings (defaults 12/20)
+  - overflow_safeguard (oldest-first leave-behind) only at destination capacity limits; expected almost never
+  - engines.csv location column required: Storage|East staging|West staging (no blank default)
+  - capacities are config settings (defaults east_staging 30, west_staging 70, yard_track 35)
+  - plain-language rule (see plain_language_rule)
+  - spot `name` field in config for display
+  - typed values matched case-insensitively
+  - engine model may be empty in CSV
 
-derived_not_explicitly_confirmed:
-  - eb_len_min/max as config values (defaults 12/20)
-  - overflow_safeguard (oldest-first leave-behind) only at destination capacity limits
-  - engines.csv optional world column (blank = storage)
-  - capacity defaults (east_loop 30, west_staging 70, yard_track 35) are placeholders from approx. figures
+derived_not_explicitly_confirmed: none
 ```
