@@ -469,3 +469,28 @@ def test_a_spot_cycles_for_a_long_time_without_getting_stuck():
     # A cycle takes 2 processing days + delays (avg 2/0.7 ≈ 2.9) + 1 idle day + ~0-1 day
     # waiting for the pull: roughly 4-5 days.
     assert 180 < completions < 260
+
+
+# --- preview (used by the forecast) ----------------------------------------------------
+
+
+def test_preview_advance_counts_down_like_advance_without_rolling():
+    from trainops.spots import preview_advance
+
+    run = Run(fixed_out(base_processing_days=1, disruption_chance=0.9))
+    run.set_out()
+    before = run.rng.getstate()
+    preview = preview_advance(run.spot, run.state, run.day + 1)
+    assert run.rng.getstate() == before
+    assert (preview.state, preview.position, preview.out_dest) == (v.READY_FOR_PICKUP, 1, v.EAST)
+    actual = run.advance(delay=False)
+    assert (actual.state, actual.position) == (preview.state, preview.position)
+
+
+def test_preview_advance_uses_the_day_early_delay_roll():
+    from trainops.spots import preview_advance
+
+    run = Run(fixed_in())
+    run.set_out()
+    held = preview_advance(run.spot, replace(run.state, next_delay=True), run.day + 1)
+    assert (held.state, held.days_left) == (v.PROCESSING, 1)

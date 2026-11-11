@@ -150,17 +150,19 @@ def advance(
     `frozen` is True while a Bad order car sits at the spot.
     """
     if not frozen:
-        if state.state == v.PROCESSING:
-            days_left = state.days_left if state.next_delay else state.days_left - 1
-            state = replace(state, days_left=days_left)
-            if days_left <= 0:
-                state = _complete(spot, state, rng)
-        elif state.state == v.IDLE:
-            days_left = state.days_left - 1
-            state = replace(state, days_left=days_left)
-            if days_left <= 0:
-                state = _awaiting_car(spot, state, new_day)
+        state = _count_down(spot, state, new_day, rng)
     return roll_ahead(spot, state, rng, settings)
+
+
+def preview_advance(spot: Spot, state: SpotState, new_day: int) -> SpotState:
+    """The next day advance as the forecast sees it, without making any rolls.
+
+    The countdowns use the delay already rolled a day early. A disruption
+    is treated as not happening: it only changes where a finished car goes,
+    not what the spot needs next. The next day's rolls are not made, so a
+    random spot that has used up its day-early draw has no next requirement.
+    """
+    return _count_down(spot, state, new_day, None)
 
 
 def roll_ahead(
@@ -185,7 +187,24 @@ def roll_ahead(
 # --- internals -------------------------------------------------------------------------
 
 
-def _complete(spot: Spot, state: SpotState, rng: random.Random) -> SpotState:
+def _count_down(
+    spot: Spot, state: SpotState, new_day: int, rng: random.Random | None
+) -> SpotState:
+    """The countdowns of one day advance (rng None: no disruption roll)."""
+    if state.state == v.PROCESSING:
+        days_left = state.days_left if state.next_delay else state.days_left - 1
+        state = replace(state, days_left=days_left)
+        if days_left <= 0:
+            state = _complete(spot, state, rng)
+    elif state.state == v.IDLE:
+        days_left = state.days_left - 1
+        state = replace(state, days_left=days_left)
+        if days_left <= 0:
+            state = _awaiting_car(spot, state, new_day)
+    return state
+
+
+def _complete(spot: Spot, state: SpotState, rng: random.Random | None) -> SpotState:
     """Processing finished: Ready for pickup, outgoing destination fixed."""
     out_dest = None
     position = state.position
@@ -193,7 +212,7 @@ def _complete(spot: Spot, state: SpotState, rng: random.Random) -> SpotState:
         fixed = spot.fixed
         if fixed.direction == v.OUTGOING:
             out_dest = fixed.pattern[position % len(fixed.pattern)]
-            if rng.random() < fixed.disruption_chance:
+            if rng is not None and rng.random() < fixed.disruption_chance:
                 out_dest = _other_side(out_dest)
             position = (position + 1) % len(fixed.pattern)
     else:
