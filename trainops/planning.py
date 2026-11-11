@@ -25,7 +25,9 @@ its listed work), met in place-in-line order by
 
 Trains:
 - Westbound manifest: every car in the East loop (closed set); continuing
-  cars in random order, Local block at the rear.
+  cars in random order, Local block at the rear. The order of cars inside a
+  Local block, and on the local, is never planned: the local's crew switches
+  them in whatever order suits them (user, 2026-11-11).
 - Eastbound manifest: length drawn from eastbound_length_min..max (counted
   leaving West staging), raised to the minimum (Local block + East-supply
   cars), lowered to what West staging holds; continuing cars in random
@@ -403,7 +405,6 @@ class _Planner:
     def _westbound(self, block: list[Car]):
         continuing = [c for c in self.east_loop if c not in block]
         self.rng.shuffle(continuing)
-        block = _in_spot_order(block, self.assignments, self.config)
         cars = continuing + block
         arriving = len(cars)
         track = self._at(v.AT_YARD, v.WESTBOUND_TRACK)  # oldest first
@@ -432,7 +433,6 @@ class _Planner:
         filler = self.rng.sample(self.west_left, min(filler_count, len(self.west_left)))
         continuing = east_supply + filler
         self.rng.shuffle(continuing)
-        block = _in_spot_order(block, self.assignments, self.config)
         cars = continuing + block
         if minimum > s.capacity.east_staging:
             self.notes.append(
@@ -480,12 +480,8 @@ class _Planner:
     def _local(self, today_supply: list[Supply]) -> TrainPlan:
         pool = [e for e in self.engines if e.pool == v.POOL_LOCAL]
         engines = self.rng.sample(pool, min(LOCAL_ENGINES, len(pool)))
-        order = {s.spot_id: i for i, s in enumerate(self.config.spots)}
-        setouts = sorted(
-            (s for s in today_supply if s.car_id is not None),
-            key=lambda s: order[s.demand.spot_id],
-        )
-        return TrainPlan(v.LOCAL, tuple(e.id for e in engines), tuple(s.car_id for s in setouts))
+        setouts = [s.car_id for s in today_supply if s.car_id is not None]
+        return TrainPlan(v.LOCAL, tuple(e.id for e in engines), tuple(setouts))
 
     # ---- helpers ----
 
@@ -536,9 +532,3 @@ def _describe(demand: Demand) -> str:
     if demand.direction == v.INCOMING:
         return f"needs a {load} {demand.car_type} from the {demand.side}"
     return f"needs an {load} {demand.car_type} to load for the {demand.side}"
-
-
-def _in_spot_order(block: list[Car], assignments, config: Config) -> list[Car]:
-    """The Local block grouped by industry, in configuration order."""
-    order = {s.spot_id: i for i, s in enumerate(config.spots)}
-    return sorted(block, key=lambda c: order[assignments[c.id][0]])
