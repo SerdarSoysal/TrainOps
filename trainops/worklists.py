@@ -10,8 +10,10 @@ matches what the signals have done so far:
 - spot_lines(): one plain-language line per spot (web page now, LCDs later)
 - current_work(): the list for the job the session is waiting on
 
-The order of cars inside a Local block or on the local is never given: the
-crew switches them in whatever order suits them. A car pulled from an
+The order of cars inside a Local block or on the local is never given, and a
+yard job is one list of moves grouped by from -> to ("Move 3 cars from the
+main to the Locals track: ..."); the crew does them in whatever order suits
+them (user, 2026-11-11). A car pulled from an
 industry is shown only by where it goes next (user, 2026-11-11).
 """
 
@@ -25,6 +27,7 @@ from trainops.signals import current_job
 from trainops.yardwork import local_return, switch_eastbound, switch_westbound, train_cars
 
 NONE = "none"
+MAIN = "main"  # where a manifest, or the local back from its run, stands for yard work
 DONE = "✓ done"
 
 _WORLD_OF_TRAIN = {
@@ -101,36 +104,49 @@ def switch_list(db: Database, config: Config, train: str) -> str:
     if done:
         return f"{title}\n  {DONE}"
 
-    count = len(job.cut)
-    lines = [title]
-    if count:
-        lines.append(f"1. Cut the rear {count} {_cars(count)} → shove into Locals track:")
-        lines.append(f"     {_car_names(job.cut)}")
-    else:
-        lines.append(f"1. Cut the rear Local block → shove into Locals track:  {NONE}")
-    pickup_head = f"2. Pick up from {track} → add to rear"
+    lines = [title] + _moves([
+        (MAIN, v.LOCALS_TRACK, job.cut),
+        (track, MAIN, job.pickup),
+    ])
     if not final:
-        pickup_head += " (more may come from the Local return job)"
-    if job.pickup:
-        lines += [pickup_head + ":", f"     {_car_names(job.pickup)}"]
-    else:
-        lines.append(f"{pickup_head}:  {NONE}" + (" yet" if not final else ""))
+        lines.append(f"  (More cars may reach the {track} during the Local return job.)")
     if job.left_behind:
         full = "West staging" if train == v.WESTBOUND_MANIFEST else "The East loop"
         lines.append(f"   ({len(job.left_behind)} {_cars(len(job.left_behind))} stay on "
                      f"{track}: {full} is full)")
     if final and job.overload:
-        lines.append(f"(Train now {job.length_after} cars — exception overload train)")
+        lines.append(f"  (Train leaves with {job.length_after} cars — exception overload train)")
     lines.append(button(signal))
     return "\n".join(lines)
 
 
-def _car_names(cars) -> str:
-    return ", ".join(f"{c.label} {c.type}" for c in cars)
-
-
 def _cars(count: int) -> str:
     return "car" if count == 1 else "cars"
+
+
+def _moves(groups) -> list[str]:
+    """A yard job's moves, one group per (from, to); the crew picks the order."""
+    lines = []
+    for source, dest, cars in groups:
+        if not cars:
+            continue
+        lines.append(f"  Move {len(cars)} {_cars(len(cars))} from the {source} to the {dest}:")
+        names = [f"{c.label} {c.type}" + (" (bad order)" if c.bad_order else "") for c in cars]
+        lines += _wrap(names, indent=6, width=76)
+    return lines or ["  Nothing to move."]
+
+
+def _wrap(items: list[str], indent: int, width: int) -> list[str]:
+    """Comma-separated items over several lines, never splitting an item."""
+    lines, line = [], ""
+    for i, item in enumerate(items):
+        piece = item + ("," if i < len(items) - 1 else "")
+        if line and indent + len(line) + 1 + len(piece) > width:
+            lines.append(" " * indent + line)
+            line = piece
+        else:
+            line = f"{line} {piece}" if line else piece
+    return lines + [" " * indent + line]
 
 
 # --- the local -------------------------------------------------------------------------
@@ -207,26 +223,19 @@ def _pull_load(spot: Spot, state, car: Car) -> str:
 def local_return_list(db: Database, config: Config) -> str:
     """Sorting the local's cars (Section 12.4); made when the local is back."""
     session = db.session()
-    title = "LOCAL RETURN JOB — sort the local's cars (on the main)"
+    title = "LOCAL RETURN JOB — the local's cars on the main"
     if session.local_return_done:
         return f"{title}\n  {DONE}"
     if not session.local_back:
         return f"{title}\n  Made when the local is back in the yard."
-    moves = local_return(db, config)
-    from_local = [m for m in moves if m.car.loc_kind == v.AT_TRAIN]
-    from_locals = [m for m in moves if m.car.loc_kind != v.AT_TRAIN]
-    lines = [title]
-    lines += _move_rows(from_local) if from_local else [f"  {NONE}"]
-    if from_locals:
-        lines.append("ALSO FROM THE LOCALS TRACK")
-        lines += _move_rows(from_locals)
+    groups: dict[tuple[str, str], list[Car]] = {}
+    for move in local_return(db, config):
+        source = MAIN if move.car.loc_kind == v.AT_TRAIN else move.car.loc_ref
+        groups.setdefault((source, move.track), []).append(move.car)
+    lines = [title] + _moves([(s, d, cars) for (s, d), cars in groups.items()])
     lines.append(button(v.LOCAL_RETURN_DONE))
     return "\n".join(lines)
 
-
-def _move_rows(moves) -> list[str]:
-    return _columns([(f"→ {m.track}:", f"{m.car.label} {m.car.type}", f"({m.reason})")
-                     for m in moves], indent=2)
 
 
 # --- spots -----------------------------------------------------------------------------

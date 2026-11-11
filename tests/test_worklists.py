@@ -93,12 +93,17 @@ def test_switch_westbound_list(busy):
     track = db.cars_at(v.AT_YARD, v.WESTBOUND_TRACK)
     lines = switch_list(db, config, v.WESTBOUND_MANIFEST).splitlines()
     assert lines[0] == "WESTBOUND MANIFEST — Switch westbound"
+    text = "\n".join(lines)
     if block:
         cars = "car" if len(block) == 1 else "cars"
-        assert lines[1] == f"1. Cut the rear {len(block)} {cars} → shove into Locals track:"
-        assert lines[2].strip() == ", ".join(f"{c.label} {c.type}" for c in block)
+        head = f"  Move {len(block)} {cars} from the main to the Locals track:"
+        assert head in lines
+        assert lines[lines.index(head) + 1].strip().startswith(f"{block[0].label} {block[0].type}")
     if track:
-        assert "2. Pick up from Westbound track → add to rear:" in lines
+        cars = "car" if len(track) == 1 else "cars"
+        assert f"  Move {len(track)} {cars} from the Westbound track to the main:" in lines
+    for car in block + track:
+        assert car.label in text
     assert lines[-1].strip() == f"[ {v.SWITCH_WESTBOUND_DONE} ]"
     assert current_work(db, config) == "\n".join(lines)
 
@@ -123,7 +128,7 @@ def test_overload_is_shown_only_when_over_twenty(busy):
 def test_switch_eastbound_pickup_is_provisional_until_the_local_return_job(busy):
     db, config = busy
     text = switch_list(db, config, v.EASTBOUND_MANIFEST)
-    assert "(more may come from the Local return job)" in text
+    assert "(More cars may reach the Eastbound track during the Local return job.)" in text
 
 
 # --- the local -------------------------------------------------------------------------
@@ -186,10 +191,14 @@ def test_local_return_list(busy):
         send(db, config, v.PULL_DONE, spot_id)
     send(db, config, v.LOCAL_BACK)
     text = local_return_list(db, config)
-    assert text.startswith("LOCAL RETURN JOB — sort the local's cars (on the main)")
+    assert text.startswith("LOCAL RETURN JOB — the local's cars on the main")
     for car in db.cars_at(v.AT_TRAIN, v.LOCAL):
         assert car.label in text
-    assert "not delivered, retry next run" in text  # nothing was set out
+    # Nothing was set out, so the local's cars for spots go back to the Locals track.
+    assert "from the main to the Locals track:" in text
+    # One list of moves: no numbered steps, no separate sections.
+    assert all(l.startswith(("LOCAL RETURN JOB", "  Move ", "      ", " " * 40))
+               for l in text.splitlines())
     assert text.splitlines()[-1].strip() == f"[ {v.LOCAL_RETURN_DONE} ]"
 
 
@@ -202,8 +211,10 @@ def test_local_return_list_includes_cars_leaving_the_locals_track(busy):
                       load=v.EMPTY, days_held=9)
     send(db, config, v.LOCAL_BACK)
     text = local_return_list(db, config)
-    section = text.split("ALSO FROM THE LOCALS TRACK\n")[1]
-    assert car.label in section
+    lines = text.splitlines()
+    head = next(l for l in lines
+                if l.startswith("  Move") and "from the Locals track to the" in l)
+    assert car.label in lines[lines.index(head) + 1]
 
 
 # --- spots -----------------------------------------------------------------------------
