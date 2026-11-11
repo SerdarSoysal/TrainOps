@@ -21,7 +21,7 @@ from pathlib import Path
 
 from trainops import vocab as v
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: session columns renamed to the switcher job names
 
 
 def _sql_list(values: tuple[str, ...]) -> str:
@@ -37,10 +37,10 @@ CREATE TABLE session (
     day               INTEGER NOT NULL CHECK (day >= 1),
     west_chore_done   INTEGER NOT NULL DEFAULT 0 CHECK (west_chore_done IN (0, 1)),
     east_chore_done   INTEGER NOT NULL DEFAULT 0 CHECK (east_chore_done IN (0, 1)),
-    job_a_done        INTEGER NOT NULL DEFAULT 0 CHECK (job_a_done IN (0, 1)),
+    switch_westbound_done        INTEGER NOT NULL DEFAULT 0 CHECK (switch_westbound_done IN (0, 1)),
     local_back        INTEGER NOT NULL DEFAULT 0 CHECK (local_back IN (0, 1)),
-    job_b_done        INTEGER NOT NULL DEFAULT 0 CHECK (job_b_done IN (0, 1)),
-    job_c_done        INTEGER NOT NULL DEFAULT 0 CHECK (job_c_done IN (0, 1)),
+    local_return_done        INTEGER NOT NULL DEFAULT 0 CHECK (local_return_done IN (0, 1)),
+    switch_eastbound_done        INTEGER NOT NULL DEFAULT 0 CHECK (switch_eastbound_done IN (0, 1)),
     local_has_work    INTEGER NOT NULL DEFAULT 0 CHECK (local_has_work IN (0, 1))
 );
 
@@ -135,10 +135,10 @@ class Session:
     day: int
     west_chore_done: bool
     east_chore_done: bool
-    job_a_done: bool
+    switch_westbound_done: bool
     local_back: bool
-    job_b_done: bool
-    job_c_done: bool
+    local_return_done: bool
+    switch_eastbound_done: bool
     local_has_work: bool
 
 

@@ -18,7 +18,7 @@ its listed work), met in place-in-line order by
   3. West-supplied: a car from West staging -> the Eastbound Local block
   4. East-supplied: a car that will ride East today, so it is in the East
      loop tomorrow. First the Eastbound pick-up block (today's pulls headed
-     East, and cars job B sends home East); otherwise a West staging car
+     East, and cars the Local return job sends home East); otherwise a West staging car
      chosen as an "East-supply" continuing car on the Eastbound manifest.
   Assigning cars to tomorrow's East-supplied spots happens tomorrow, from
   whatever is then in the East loop; today only makes sure the cars are there.
@@ -46,7 +46,7 @@ Cars on the Locals track:
 - otherwise released (confirmed 2026-11-11): an empty of a type some
   outgoing spot uses becomes a held empty; anything else goes home.
 - a held empty unused for more than hold_days_on_locals day advances goes
-  home. Cars going home are moved by job B (confirmed 2026-11-11) to the yard
+  home. Cars going home are moved by the Local return job (confirmed 2026-11-11) to the yard
   track toward their origin world.
 
 `make_plan` is pure (config + records in, DayPlan out); `plan_day` reads the
@@ -109,11 +109,11 @@ class DayPlan:
     local: TrainPlan
     eastbound_draw: int  # the random length before the minimum and staging limits
     eastbound_minimum: int
-    westbound_pickup: tuple[int, ...]  # job A: cars on the Westbound track that go
-    eastbound_pickup: tuple[int, ...]  # job C, predicted
+    westbound_pickup: tuple[int, ...]  # Switch westbound: cars on the Westbound track that go
+    eastbound_pickup: tuple[int, ...]  # Switch eastbound, predicted
     assignments: dict[int, tuple[str, str]] = field(default_factory=dict)  # car -> (spot, load)
     released: tuple[int, ...] = ()  # cars on Locals that lose their assignment
-    going_home: tuple[int, ...] = ()  # cars job B takes off the Locals track today
+    going_home: tuple[int, ...] = ()  # cars the Local return job takes off the Locals track today
     local_has_work: bool = False
     notes: tuple[str, ...] = ()
 
@@ -322,7 +322,7 @@ class _Planner:
         self.held_left = held
         return supply, block
 
-    # ---- what today's local and job B send where ----
+    # ---- what today's local and the Local return job send where ----
 
     def _predict_pulls(self):
         """Predict the Eastbound pick-up block and tomorrow's held empties.
@@ -357,7 +357,7 @@ class _Planner:
                     eastbound.append(pulled)
                 else:
                     westbound_added.append(pulled)
-        # Held empties reaching their limit today go home at tomorrow's job B, not today's.
+        # Held empties reaching their limit today go home at tomorrow's Local return job, not today's.
         for car in self.going_home:
             (eastbound if car.origin_world == v.EAST_STAGING else westbound_added).append(car)
         return eastbound, westbound_added

@@ -35,7 +35,7 @@ def send(db, config, signal, spot_id=None, seed=0):
 def to_the_local(db, config):
     send(db, config, v.WEST_CHORE_DONE)
     send(db, config, v.EAST_CHORE_DONE)
-    send(db, config, v.JOB_A_DONE)
+    send(db, config, v.SWITCH_WESTBOUND_DONE)
 
 
 def local_moves(db):
@@ -64,8 +64,8 @@ def run_local(db, config, rng, skip_chance=0.0):
 def finish_day(db, config, seed):
     if not db.session().local_back:
         send(db, config, v.LOCAL_BACK)
-    send(db, config, v.JOB_B_DONE)
-    send(db, config, v.JOB_C_DONE)
+    send(db, config, v.LOCAL_RETURN_DONE)
+    send(db, config, v.SWITCH_EASTBOUND_DONE)
     return send(db, config, v.SESSION_COMPLETE, seed=seed)
 
 
@@ -104,7 +104,7 @@ def check_invariants(db, config):
         if c.assigned_spot is None:
             assert c.load == v.EMPTY and any(v.same_words(c.type, t) for t in held_types)
             assert c.days_held <= config.settings.hold_days_on_locals + 1
-    # The Eastbound track is always taken by job C.
+    # The Eastbound track is always taken by Switch eastbound.
     assert db.cars_at(v.AT_YARD, v.EASTBOUND_TRACK) == []
 
 
@@ -115,28 +115,28 @@ def test_signals_are_taken_in_order(railroad):
     db, config = railroad
     assert current_job(db.session()) == v.JOB_CHORES
     with pytest.raises(SignalRefused, match="^Waiting on the West chore and the East chore.$"):
-        send(db, config, v.JOB_A_DONE)
+        send(db, config, v.SWITCH_WESTBOUND_DONE)
     send(db, config, v.WEST_CHORE_DONE)
     with pytest.raises(SignalRefused, match="^The West chore is already done.$"):
         send(db, config, v.WEST_CHORE_DONE)
     with pytest.raises(SignalRefused, match="^Waiting on the East chore.$"):
         send(db, config, v.PULL_DONE, "harbor_pit")
     send(db, config, v.EAST_CHORE_DONE)
-    assert current_job(db.session()) == v.JOB_A
-    with pytest.raises(SignalRefused, match="^Waiting on job A.$"):
+    assert current_job(db.session()) == v.SWITCH_WESTBOUND
+    with pytest.raises(SignalRefused, match="^Waiting on Switch westbound.$"):
         send(db, config, v.LOCAL_BACK)
-    send(db, config, "  job a   DONE ")  # capitals and spaces don't matter
+    send(db, config, "  switch WESTBOUND   done ")  # capitals and spaces don't matter
     assert current_job(db.session()) == v.JOB_LOCAL
     with pytest.raises(SignalRefused, match="^Waiting on the local.$"):
-        send(db, config, v.JOB_B_DONE)
+        send(db, config, v.LOCAL_RETURN_DONE)
     send(db, config, v.LOCAL_BACK)
     with pytest.raises(SignalRefused, match="^The local is already back in the yard.$"):
         send(db, config, v.SET_OUT_DONE, "harbor_pit")
-    with pytest.raises(SignalRefused, match="^Waiting on job B.$"):
+    with pytest.raises(SignalRefused, match="^Waiting on the Local return job.$"):
         send(db, config, v.SESSION_COMPLETE)
-    send(db, config, v.JOB_B_DONE)
-    assert current_job(db.session()) == v.JOB_C
-    send(db, config, v.JOB_C_DONE)
+    send(db, config, v.LOCAL_RETURN_DONE)
+    assert current_job(db.session()) == v.SWITCH_EASTBOUND
+    send(db, config, v.SWITCH_EASTBOUND_DONE)
     assert current_job(db.session()) == v.JOB_END
     notes = send(db, config, v.SESSION_COMPLETE)
     assert notes[0] == "Day 2 begins."
@@ -160,7 +160,7 @@ def test_a_refused_signal_changes_nothing(railroad):
     assert (db.cars(), db.spot_states(), db.session()) == before
 
 
-# --- the chores and job A --------------------------------------------------------------
+# --- the chores and Switch westbound --------------------------------------------------------------
 
 
 def test_chores_build_the_manifests_from_the_plan(railroad):
@@ -176,7 +176,7 @@ def test_chores_build_the_manifests_from_the_plan(railroad):
     assert db.engines_at(v.AT_WORLD, v.EAST_STAGING) == []
 
 
-def test_job_a_cuts_the_block_and_the_train_reaches_west_staging(railroad):
+def test_switch_westbound_cuts_the_block_and_the_train_reaches_west_staging(railroad):
     db, config = railroad
     block = {c.id for c in db.cars() if c.assigned_spot and c.loc_ref == v.EAST_STAGING}
     wb = {c.id for c in db.cars_at(v.AT_WORLD, v.EAST_STAGING)}
@@ -258,11 +258,11 @@ def test_undelivered_car_returns_to_locals_and_goes_out_again(railroad):
     car = db.cars_at(v.AT_TRAIN, v.LOCAL)[0]
     notes = send(db, config, v.LOCAL_BACK)
     assert car.label in notes[0] and notes[0].startswith("Not delivered")
-    send(db, config, v.JOB_B_DONE)
+    send(db, config, v.LOCAL_RETURN_DONE)
     back = db.car(car.id)
     assert (back.loc_ref, back.assigned_spot, back.load) == (
         v.LOCALS_TRACK, car.assigned_spot, car.load)
-    send(db, config, v.JOB_C_DONE)
+    send(db, config, v.SWITCH_EASTBOUND_DONE)
     send(db, config, v.SESSION_COMPLETE)
     to_the_local(db, config)
     assert db.car(car.id).loc_ref == v.LOCAL  # first in line next run
@@ -310,13 +310,13 @@ def test_bad_order_car_is_pulled_sent_west_and_leaves_the_roster(railroad):
         assert after.state == v.AWAITING_CAR
         assert after.waiting_since_day == state_before.waiting_since_day
     send(db, config, v.LOCAL_BACK)
-    send(db, config, v.JOB_B_DONE)
+    send(db, config, v.LOCAL_RETURN_DONE)
     assert db.car(car.id).loc_ref == v.WESTBOUND_TRACK
-    send(db, config, v.JOB_C_DONE)
+    send(db, config, v.SWITCH_EASTBOUND_DONE)
     send(db, config, v.SESSION_COMPLETE)
     send(db, config, v.WEST_CHORE_DONE)
     send(db, config, v.EAST_CHORE_DONE)
-    notes = send(db, config, v.JOB_A_DONE)
+    notes = send(db, config, v.SWITCH_WESTBOUND_DONE)
     assert f"Bad order car {car.label} reached West staging and left the roster" in notes[0]
     assert db.find_car(car.mark, car.number) is None
 
@@ -352,10 +352,10 @@ def test_local_is_skipped_when_it_has_no_work(tmp_path, samples_dir):
                rng=random.Random(1))
     send(db, config, v.WEST_CHORE_DONE)
     send(db, config, v.EAST_CHORE_DONE)
-    assert "No work for the local today." in send(db, config, v.JOB_A_DONE)
+    assert "No work for the local today." in send(db, config, v.SWITCH_WESTBOUND_DONE)
     session = db.session()
     assert session.local_back and not session.local_has_work
-    assert current_job(session) == v.JOB_B
+    assert current_job(session) == v.LOCAL_RETURN
     assert db.engines_at(v.AT_TRAIN, v.LOCAL) == []
 
 
@@ -387,3 +387,30 @@ def test_shortages_clear_up_when_every_move_is_done(railroad):
         notes = run_day(db, config, rng)
         shortages.append(sum("today" in n and n.startswith("No car") for n in notes))
     assert sum(shortages[10:]) <= sum(shortages[:10]) + 5
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_local_moves_are_taken_in_any_order(railroad, seed):
+    """Industries and spots in any order; only a set-out on a still-occupied spot waits."""
+    db, config = railroad
+    rng = random.Random(seed)
+    for _ in range(3):
+        run_day(db, config, rng)  # get some cars ready for pickup
+    to_the_local(db, config)
+    pulls, setouts = local_moves(db)
+    moves = [(v.PULL_DONE, s) for s in pulls] + [(v.SET_OUT_DONE, s) for s in setouts]
+    rng.shuffle(moves)
+    waiting = []
+    for signal, spot_id in moves:
+        try:
+            send(db, config, signal, spot_id)
+        except SignalRefused as refusal:
+            # The one refusal allowed: this spot's own car must be pulled first.
+            assert signal == v.SET_OUT_DONE and spot_id in pulls
+            assert str(refusal).startswith("Pull ") and str(refusal).endswith(" first.")
+            waiting.append(spot_id)
+    for spot_id in waiting:  # after their pulls, these go through
+        send(db, config, v.SET_OUT_DONE, spot_id)
+    assert db.cars_at(v.AT_TRAIN, v.LOCAL) == [
+        c for c in db.cars_at(v.AT_TRAIN, v.LOCAL) if c.assigned_spot is None
+    ]  # every car for a spot was set out

@@ -4,7 +4,7 @@ Cars for the local are chosen a day before they are used, so at each day
 advance the planner (step 7) asks two questions:
 
 - `for_today`: which spots need a car during today's local. The East-supplied
-  part is served by today's Westbound Local block (cut by job A before the
+  part is served by today's Westbound Local block (cut by Switch westbound before the
   local runs); outgoing spots are served first by held empties on Locals.
 - `for_tomorrow`: which spots will need a car during tomorrow's local,
   assuming today's local does all its listed work. The West-supplied part is

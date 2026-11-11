@@ -3,11 +3,11 @@
 Nothing here is stored: each job is derived from where the cars are now, so
 the signal that completes a job and the work list that shows it always agree.
 
-- Job A (Westbound manifest at the yard): cut the Local block (the manifest's
+- Switch westbound (Westbound manifest at the yard): cut the Local block (the manifest's
   cars assigned to a spot) into the Locals track; pick up the Westbound track.
-- Job B (after the local): route every car the local brought back, and send
+- The Local return job (after the local): route every car the local brought back, and send
   home cars on the Locals track that are no longer held (confirmed 2026-11-11).
-- Job C (Eastbound manifest at the yard): cut its Local block into the Locals
+- Switch eastbound (Eastbound manifest at the yard): cut its Local block into the Locals
   track; pick up the Eastbound track.
 
 Pick-up blocks are never left behind, except as a safeguard when the
@@ -37,14 +37,14 @@ class YardJob:
 
 @dataclass(frozen=True)
 class Move:
-    """Job B: one car to one yard track, with the reason in plain words."""
+    """The Local return job: one car to one yard track, with the reason in plain words."""
 
     car: Car
     track: str
     reason: str
 
 
-def job_a(db: Database, config: Config) -> YardJob:
+def switch_westbound(db: Database, config: Config) -> YardJob:
     west_now = len(db.cars_at(v.AT_WORLD, v.WEST_STAGING))
     west_now += len(db.cars_at(v.AT_TRAIN, v.EASTBOUND_MANIFEST))  # still in West staging
     return _yard_job(
@@ -53,7 +53,7 @@ def job_a(db: Database, config: Config) -> YardJob:
     )
 
 
-def job_c(db: Database, config: Config) -> YardJob:
+def switch_eastbound(db: Database, config: Config) -> YardJob:
     east_now = len(db.cars_at(v.AT_WORLD, v.EAST_STAGING))
     return _yard_job(
         db, config, v.EASTBOUND_MANIFEST, v.EASTBOUND_TRACK,
@@ -61,8 +61,8 @@ def job_c(db: Database, config: Config) -> YardJob:
     )
 
 
-def job_b(db: Database, config: Config) -> list[Move]:
-    """Where job B puts each car: the local's cars, then cars leaving the Locals track."""
+def local_return(db: Database, config: Config) -> list[Move]:
+    """Where the Local return job puts each car: the local's cars, then cars leaving the Locals track."""
     held_types = outgoing_types(config)
     hold_days = config.settings.hold_days_on_locals
 

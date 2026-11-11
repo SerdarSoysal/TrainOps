@@ -38,10 +38,10 @@ def test_new_database_starts_on_day_one_with_nothing_done(db):
         [
             session.west_chore_done,
             session.east_chore_done,
-            session.job_a_done,
+            session.switch_westbound_done,
             session.local_back,
-            session.job_b_done,
-            session.job_c_done,
+            session.local_return_done,
+            session.switch_eastbound_done,
             session.local_has_work,
         ]
     )
@@ -53,11 +53,11 @@ def test_saved_data_survives_reopening(tmp_path):
     with Database.open(path) as db:
         with db.transaction():
             add_boxcar(db)
-            db.update_session(day=5, job_a_done=True)
+            db.update_session(day=5, switch_westbound_done=True)
     with Database.open(path) as db:
         assert db.find_car("CSXT", "14420").type == "boxcar"
         assert db.session().day == 5
-        assert db.session().job_a_done is True
+        assert db.session().switch_westbound_done is True
 
 
 def test_database_from_another_version_is_refused(tmp_path):
@@ -89,10 +89,10 @@ def test_an_error_undoes_the_whole_transaction(db):
     with pytest.raises(ZeroDivisionError):
         with db.transaction():
             add_boxcar(db, "1")
-            db.update_session(job_a_done=True)
+            db.update_session(switch_westbound_done=True)
             1 / 0
     assert db.cars() == []
-    assert db.session().job_a_done is False
+    assert db.session().switch_westbound_done is False
 
 
 def test_transaction_can_be_used_again_after_an_error(db):

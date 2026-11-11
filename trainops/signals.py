@@ -6,12 +6,12 @@ either all of its changes are saved or, if it is refused, none.
 
 Signals are taken in sequence order:
     West chore done, East chore done   (either order)
-    Job A done
+    Switch westbound done
     Pull done / Set-out done (per spot, any order; a set-out on an occupied
         spot waits for its pull)
     Local back in yard                 (skipped automatically if no local work)
-    Job B done
-    Job C done
+    Local return job done
+    Switch eastbound done
     Session complete                   (the day advance)
 A signal for a later job while an earlier one is pending is refused with
 "Waiting on ...". Undoing a mistaken signal is done with the edit tool.
@@ -19,15 +19,15 @@ A signal for a later job while an earlier one is pending is refused with
 What each signal changes:
 - chores: each manifest is built in its world from the plan; engines not
   in the plan at that world go to Storage
-- job A: Local block -> Locals track; Westbound track -> rear of train; the
+- Switch westbound: Local block -> Locals track; Westbound track -> rear of train; the
   train reaches West staging (Bad order cars aboard leave the roster); the
   local is made up from its planned engines and cars
 - pull: car -> local; outgoing spot's car is loaded for the destination
   fixed at Ready, incoming spot's car is empty; spot -> Idle or Awaiting car
 - set-out: car -> spot, assignment cleared; spot -> Processing
 - local back: closes the local; cars not set out are not delivered
-- job B: the local's cars sorted (yardwork.job_b); local engines -> Storage
-- job C: Local block -> Locals track; Eastbound track -> rear; the train
+- the Local return job: the local's cars sorted (yardwork.local_return); local engines -> Storage
+- Switch eastbound: Local block -> Locals track; Eastbound track -> rear; the train
   reaches the East loop
 - session complete: held empties count a day; every spot advances (frozen
   while it holds a Bad order car); the new day is planned
@@ -42,32 +42,32 @@ from trainops import vocab as v
 from trainops.config import Config
 from trainops.db import Car, Database, Session
 from trainops.planning import plan_day
-from trainops.yardwork import job_a, job_b, job_c
+from trainops.yardwork import switch_westbound, local_return, switch_eastbound
 
 # The session flags in sequence order, with how a refusal names each job.
 _STEPS = (
     ("west_chore_done", "the West chore"),
     ("east_chore_done", "the East chore"),
-    ("job_a_done", "job A"),
+    ("switch_westbound_done", "Switch westbound"),
     ("local_back", "the local"),
-    ("job_b_done", "job B"),
-    ("job_c_done", "job C"),
+    ("local_return_done", "the Local return job"),
+    ("switch_eastbound_done", "Switch eastbound"),
 )
 _FLAG_OF = {
     v.WEST_CHORE_DONE: "west_chore_done",
     v.EAST_CHORE_DONE: "east_chore_done",
-    v.JOB_A_DONE: "job_a_done",
+    v.SWITCH_WESTBOUND_DONE: "switch_westbound_done",
     v.LOCAL_BACK: "local_back",
-    v.JOB_B_DONE: "job_b_done",
-    v.JOB_C_DONE: "job_c_done",
+    v.LOCAL_RETURN_DONE: "local_return_done",
+    v.SWITCH_EASTBOUND_DONE: "switch_eastbound_done",
 }
 _DONE_NAME = {
     "west_chore_done": "The West chore",
     "east_chore_done": "The East chore",
-    "job_a_done": "Job A",
+    "switch_westbound_done": "Switch westbound",
     "local_back": "The local",
-    "job_b_done": "Job B",
-    "job_c_done": "Job C",
+    "local_return_done": "Local return job",
+    "switch_eastbound_done": "Switch eastbound",
 }
 
 
@@ -79,8 +79,8 @@ def current_job(session: Session) -> str:
     """The job the session is waiting on (what the page shows)."""
     if not (session.west_chore_done and session.east_chore_done):
         return v.JOB_CHORES
-    for flag, job in (("job_a_done", v.JOB_A), ("local_back", v.JOB_LOCAL),
-                      ("job_b_done", v.JOB_B), ("job_c_done", v.JOB_C)):
+    for flag, job in (("switch_westbound_done", v.SWITCH_WESTBOUND), ("local_back", v.JOB_LOCAL),
+                      ("local_return_done", v.LOCAL_RETURN), ("switch_eastbound_done", v.SWITCH_EASTBOUND)):
         if not getattr(session, flag):
             return job
     return v.JOB_END
@@ -116,7 +116,7 @@ def _check_order(session: Session, name: str) -> None:
 
     if name in (v.WEST_CHORE_DONE, v.EAST_CHORE_DONE):
         needed = 0
-    elif name == v.JOB_A_DONE:
+    elif name == v.SWITCH_WESTBOUND_DONE:
         needed = 2
     elif name in v.SPOT_SIGNALS or name == v.LOCAL_BACK:
         needed = 3
@@ -172,11 +172,11 @@ def _build_manifest(db: Database, train: str, world: str) -> list[str]:
     return notes
 
 
-# --- job A and the local ---------------------------------------------------------------
+# --- Switch westbound and the local ---------------------------------------------------------------
 
 
-def _job_a(db, config, spot_id, rng):
-    job = job_a(db, config)
+def _switch_westbound(db, config, spot_id, rng):
+    job = switch_westbound(db, config)
     for car in job.cut:
         _to_track(db, car, v.LOCALS_TRACK)
     for car in job.pickup:
@@ -185,7 +185,7 @@ def _job_a(db, config, spot_id, rng):
     if job.left_behind:
         notes.append(f"{len(job.left_behind)} cars wait on the Westbound track "
                      f"(West staging is full).")
-    db.update_session(job_a_done=True)
+    db.update_session(switch_westbound_done=True)
 
     if _local_has_work(db, config):
         _make_up_local(db)
@@ -268,26 +268,26 @@ def _local_back(db, config, spot_id, rng):
     undelivered = [c for c in db.cars_at(v.AT_TRAIN, v.LOCAL) if c.assigned_spot]
     if not undelivered:
         return []
-    return [f"Not delivered, back to the Locals track at job B: "
+    return [f"Not delivered, back to the Locals track at the Local return job: "
             f"{v.both(c.label for c in undelivered)}."]
 
 
 # --- jobs B and C ----------------------------------------------------------------------
 
 
-def _job_b(db, config, spot_id, rng):
-    for move in job_b(db, config):
+def _local_return(db, config, spot_id, rng):
+    for move in local_return(db, config):
         changes = {"days_held": 0} if move.car.loc_kind == v.AT_TRAIN and \
             move.track == v.LOCALS_TRACK and move.car.assigned_spot is None else {}
         _to_track(db, move.car, move.track, **changes)
     for engine in db.engines_at(v.AT_TRAIN, v.LOCAL):
         db.update_engine(engine.id, loc_kind=v.AT_STORAGE, loc_ref=v.STORAGE, seq=None)
-    db.update_session(job_b_done=True)
+    db.update_session(local_return_done=True)
     return []
 
 
-def _job_c(db, config, spot_id, rng):
-    job = job_c(db, config)
+def _switch_eastbound(db, config, spot_id, rng):
+    job = switch_eastbound(db, config)
     for car in job.cut:
         _to_track(db, car, v.LOCALS_TRACK)
     for car in job.pickup:
@@ -296,7 +296,7 @@ def _job_c(db, config, spot_id, rng):
     if job.left_behind:
         notes.append(f"{len(job.left_behind)} cars wait on the Eastbound track "
                      f"(the East loop is full).")
-    db.update_session(job_c_done=True)
+    db.update_session(switch_eastbound_done=True)
     return notes
 
 
@@ -362,11 +362,11 @@ def _arrive(db: Database, train: str, world: str) -> list[str]:
 _EFFECTS = {
     v.WEST_CHORE_DONE: _west_chore,
     v.EAST_CHORE_DONE: _east_chore,
-    v.JOB_A_DONE: _job_a,
+    v.SWITCH_WESTBOUND_DONE: _switch_westbound,
     v.PULL_DONE: _pull,
     v.SET_OUT_DONE: _set_out,
     v.LOCAL_BACK: _local_back,
-    v.JOB_B_DONE: _job_b,
-    v.JOB_C_DONE: _job_c,
+    v.LOCAL_RETURN_DONE: _local_return,
+    v.SWITCH_EASTBOUND_DONE: _switch_eastbound,
     v.SESSION_COMPLETE: _session_complete,
 }

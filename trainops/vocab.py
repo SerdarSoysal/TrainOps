@@ -109,30 +109,30 @@ def either(choices: Iterable[str]) -> str:
 # Signals (spec Section 13). Sources: web page buttons now, ESP32 nodes later.
 WEST_CHORE_DONE = "West chore done"
 EAST_CHORE_DONE = "East chore done"
-JOB_A_DONE = "Job A done"
+SWITCH_WESTBOUND_DONE = "Switch westbound done"
 PULL_DONE = "Pull done"  # per spot
 SET_OUT_DONE = "Set-out done"  # per spot
 LOCAL_BACK = "Local back in yard"
-JOB_B_DONE = "Job B done"
-JOB_C_DONE = "Job C done"
+LOCAL_RETURN_DONE = "Local return job done"
+SWITCH_EASTBOUND_DONE = "Switch eastbound done"
 SESSION_COMPLETE = "Session complete"
 SIGNALS = (
     WEST_CHORE_DONE,
     EAST_CHORE_DONE,
-    JOB_A_DONE,
+    SWITCH_WESTBOUND_DONE,
     PULL_DONE,
     SET_OUT_DONE,
     LOCAL_BACK,
-    JOB_B_DONE,
-    JOB_C_DONE,
+    LOCAL_RETURN_DONE,
+    SWITCH_EASTBOUND_DONE,
     SESSION_COMPLETE,
 )
 SPOT_SIGNALS = (PULL_DONE, SET_OUT_DONE)
 
 # The jobs of a session, in order (what the page shows as the current job).
 JOB_CHORES = "Pre-session chores"
-JOB_A = "Job A"
+SWITCH_WESTBOUND = "Switch westbound"
 JOB_LOCAL = "Local"
-JOB_B = "Job B"
-JOB_C = "Job C"
+LOCAL_RETURN = "Local return job"
+SWITCH_EASTBOUND = "Switch eastbound"
 JOB_END = "Session complete"

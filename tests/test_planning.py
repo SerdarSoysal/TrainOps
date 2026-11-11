@@ -349,8 +349,8 @@ def test_held_empties_go_home_after_the_hold_days():
     lay.cars_of("boxcar", v.WEST_STAGING, 2)
     plan = lay.plan()
     assert plan.going_home == (expired.id,)
-    assert expired.id in plan.eastbound_pickup  # job B sends it toward the East
-    # last_day can't wait until tomorrow (and leaves at tomorrow's job B), so tomorrow's
+    assert expired.id in plan.eastbound_pickup  # the Local return job sends it toward the East
+    # last_day can't wait until tomorrow (and leaves at tomorrow's Local return job), so tomorrow's
     # need is met by the expired empty riding East today.
     assert last_day.id not in plan.eastbound_pickup
     assert supply_of(plan, "door", "tomorrow").car_id == expired.id

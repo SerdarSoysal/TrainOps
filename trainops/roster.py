@@ -1,7 +1,7 @@
 """Roster changes after the cold start (agreed 2026-11-11).
 
 Retiring a car:
-- at an industry spot: the car is marked Bad order. The local pulls it, job B
+- at an industry spot: the car is marked Bad order. The local pulls it, the Local return job
   sends it west, and it leaves the roster when it reaches West staging. (The
   pull, routing and arrival are handled with the signals, steps 7-8.)
 - anywhere else: removed at once; take it off the layout. If it was planned

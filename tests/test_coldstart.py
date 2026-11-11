@@ -66,7 +66,7 @@ def test_sample_roster_cold_starts(db, config, files):
 def test_cold_start_wipes_what_was_there(db, config, files):
     cold_start(db, config, *files)
     with db.transaction():
-        db.update_session(day=40, job_a_done=True)
+        db.update_session(day=40, switch_westbound_done=True)
         car = db.find_car("CSXT", "14420")
         db.update_car(car.id, loc_kind=v.AT_YARD, loc_ref=v.LOCALS_TRACK, seq=1)
         db.set_consist_plan(v.LOCAL, engine_ids=[], car_ids=[car.id])
@@ -83,7 +83,7 @@ def test_cold_start_wipes_what_was_there(db, config, files):
 
     cold_start(db, config, *files)
     session = db.session()
-    assert session.day == 1 and session.job_a_done is False
+    assert session.day == 1 and session.switch_westbound_done is False
     assert db.find_car("CSXT", "14420").loc_ref == v.EAST_STAGING
     # The old plan is gone. Day 1's local: 2 engines and the Westbound Local block
     # (the yard was empty, so nothing else).
