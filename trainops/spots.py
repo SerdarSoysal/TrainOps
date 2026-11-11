@@ -87,6 +87,13 @@ def upcoming_need(spot: Spot, state: SpotState) -> Need | None:
     return need(spot, state)
 
 
+def next_draw_need(spot: Spot, state: SpotState) -> Need | None:
+    """A random spot's day-early draw (None for a fixed spot or when not drawn)."""
+    if spot.requirement_mode != v.RANDOM:
+        return None
+    return _random_need(spot, state.next_requirement_number, state.next_requirement_side)
+
+
 def _random_need(spot: Spot, number: int | None, side: str | None) -> Need | None:
     if number is None:
         return None

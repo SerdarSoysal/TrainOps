@@ -44,7 +44,7 @@ def test_sample_roster_cold_starts(db, config, files):
     assert len(db.cars()) == 65
     assert len(db.engines()) == 19
 
-    car = db.find_car("CSXT", "14420")
+    car = db.find_car("CSXT", "491022")  # a gondola: no spot uses it, so never planned
     assert (car.loc_kind, car.loc_ref, car.seq) == (v.AT_WORLD, v.EAST_STAGING, None)
     assert car.origin_world == v.EAST_STAGING
     assert car.load == v.NOT_TRACKED
@@ -85,7 +85,12 @@ def test_cold_start_wipes_what_was_there(db, config, files):
     session = db.session()
     assert session.day == 1 and session.job_a_done is False
     assert db.find_car("CSXT", "14420").loc_ref == v.EAST_STAGING
-    assert db.consist_plan(v.LOCAL) == []
+    # The old plan is gone. Day 1's local: 2 engines and the Westbound Local block
+    # (the yard was empty, so nothing else).
+    local = db.consist_plan(v.LOCAL)
+    assert [e.car_id for e in local[:2]] == [None, None]
+    local_cars = {e.car_id for e in local[2:]}
+    assert all(db.car(c).loc_ref == v.EAST_STAGING for c in local_cars)
     assert db.spot_state("harbor_pit").state == v.AWAITING_CAR
 
 

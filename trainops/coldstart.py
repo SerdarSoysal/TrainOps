@@ -9,8 +9,7 @@ railroad starts again at day 1:
 - every spot is awaiting a car (a random spot draws its first requirement)
   and gets its day-early rolls
 - the yard is empty
-
-(Planning the first session's trains comes with train planning, step 7.)
+- day 1's trains are planned (planning.plan_day)
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ from pathlib import Path
 from trainops import vocab as v
 from trainops.config import Config
 from trainops.db import Database
+from trainops.planning import plan_day
 from trainops.reconcile import create_spot_states
 from trainops.spots import roll_ahead
 from trainops.rosterfiles import (
@@ -87,6 +87,7 @@ def cold_start(
         for spot in config.spots:
             state = db.spot_state(spot.spot_id)
             db.put_spot_state(roll_ahead(spot, state, rng, config.settings))
+        plan_day(db, config, rng)
 
     notes = [
         f"Cold start done: {len(cars)} cars ({per_world[v.EAST_STAGING]} in East staging, "
