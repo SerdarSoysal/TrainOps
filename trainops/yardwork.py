@@ -62,7 +62,10 @@ def switch_eastbound(db: Database, config: Config) -> YardJob:
 
 
 def local_return(db: Database, config: Config) -> list[Move]:
-    """Where the Local return job puts each car: the local's cars, then cars leaving the Locals track."""
+    """Where the Local return job puts each car.
+
+    First the cars the local brought back, then cars leaving the Locals track.
+    """
     held_types = outgoing_types(config)
     hold_days = config.settings.hold_days_on_locals
 
@@ -100,8 +103,16 @@ def toward(world: str) -> str:
     return v.EASTBOUND_TRACK if world == v.EAST_STAGING else v.WESTBOUND_TRACK
 
 
-def _yard_job(db: Database, config: Config, train: str, track: str, room: int) -> YardJob:
+def train_cars(db: Database, train: str) -> list[Car]:
+    """A manifest's cars head to rear: as made up, or as planned before its chore."""
     cars = db.cars_at(v.AT_TRAIN, train)
+    if cars:
+        return cars
+    return [db.car(e.car_id) for e in db.consist_plan(train) if e.car_id is not None]
+
+
+def _yard_job(db: Database, config: Config, train: str, track: str, room: int) -> YardJob:
+    cars = train_cars(db, train)
     cut = tuple(c for c in cars if c.assigned_spot is not None)
     after_cut = len(cars) - len(cut)
     waiting = db.cars_at(v.AT_YARD, track)  # oldest first
