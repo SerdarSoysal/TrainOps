@@ -1,0 +1,66 @@
+mark,number,type,location
+CSXT,14420,boxcar,East staging
+BNSF,726103,boxcar,East staging
+NS,471209,boxcar,East staging
+TBOX,664120,boxcar,East staging
+ABOX,50231,boxcar,East staging
+BNSF,401221,covered hopper,East staging
+UP,85412,covered hopper,East staging
+ADMX,44120,covered hopper,East staging
+UTLX,98120,tank car,East staging
+GATX,21044,tank car,East staging
+PROX,33102,tank car,East staging
+TTPX,81122,flatcar,East staging
+CSXT,491022,gondola,East staging
+BNSF,534410,gondola,East staging
+TTGX,963001,autorack,East staging
+ETTX,901234,autorack,East staging
+CSXT,14587,boxcar,West staging
+BNSF,727455,boxcar,West staging
+NS,472816,boxcar,West staging
+UP,361044,boxcar,West staging
+UP,362587,boxcar,West staging
+TBOX,665893,boxcar,West staging
+ABOX,50762,boxcar,West staging
+CSXT,15102,boxcar,West staging
+BNSF,728390,boxcar,West staging
+NS,473355,boxcar,West staging
+UP,363120,boxcar,West staging
+TBOX,667004,boxcar,West staging
+ABOX,51188,boxcar,West staging
+BNSF,402876,covered hopper,West staging
+UP,86077,covered hopper,West staging
+CSXT,259103,covered hopper,West staging
+CSXT,259877,covered hopper,West staging
+ADMX,44983,covered hopper,West staging
+TILX,610233,covered hopper,West staging
+TILX,611478,covered hopper,West staging
+NAHX,52210,covered hopper,West staging
+NAHX,52841,covered hopper,West staging
+UTLX,98771,tank car,West staging
+GATX,21590,tank car,West staging
+PROX,33657,tank car,West staging
+TILX,210455,tank car,West staging
+TILX,211089,tank car,West staging
+UTLX,99304,tank car,West staging
+GATX,22013,tank car,West staging
+TTPX,81509,flatcar,West staging
+BNSF,925120,flatcar,West staging
+UP,260411,flatcar,West staging
+CSXT,601233,flatcar,West staging
+CSXT,491788,gondola,West staging
+BNSF,535062,gondola,West staging
+NS,196224,gondola,West staging
+NS,197051,gondola,West staging
+UP,911420,gondola,West staging
+UP,912087,gondola,West staging
+GONX,310455,gondola,West staging
+GONX,311090,gondola,West staging
+TTGX,963255,autorack,West staging
+TTGX,964118,autorack,West staging
+ETTX,902177,autorack,West staging
+ETTX,903390,autorack,West staging
+TTGX,965402,autorack,West staging
+ETTX,904488,autorack,West staging
+TTGX,966011,autorack,West staging
+ETTX,905120,autorack,West staging

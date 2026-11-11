@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environment
+.venv/
+
+# Test and tool caches
+.pytest_cache/
+
+# Runtime database (state lives here; rebuilt by cold start)
+*.sqlite
+*.sqlite3
+*.db

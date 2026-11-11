@@ -1,0 +1,20 @@
+mark,number,model,pool,location
+BNSF,7710,ES44AC,manifest,East staging
+BNSF,7742,ES44AC,manifest,East staging
+UP,8510,SD70ACe,manifest,East staging
+BNSF,6180,ES44C4,manifest,Storage
+UP,8612,SD70ACe,manifest,Storage
+UP,7022,ES44AC,manifest,Storage
+CSXT,3110,ES44AH,manifest,Storage
+CSXT,3194,ES44AH,manifest,Storage
+CSXT,5287,ES44DC,manifest,Storage
+NS,4002,AC44C6M,manifest,Storage
+NS,4135,AC44C6M,manifest,Storage
+NS,8100,ES44AC,manifest,Storage
+BNSF,9201,SD70MAC,manifest,Storage
+BNSF,9310,SD70MAC,manifest,Storage
+CSXT,2650,GP38-2,local,Storage
+CSXT,2671,GP38-2,local,Storage
+NS,5302,GP38-2,local,Storage
+BNSF,2310,,local,Storage
+CSXT,1203,SW1500,switcher,Storage

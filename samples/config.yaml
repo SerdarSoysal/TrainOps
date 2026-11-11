@@ -1,0 +1,109 @@
+# Sample configuration with made-up industries.
+# Used for development and tests until the real industry data exists.
+# Field meanings: spec Section 5 (spots) and Section 16.1 (settings).
+
+settings:
+  hold_days_on_locals: 2           # days an empty from an incoming spot waits on the Locals track (Section 8)
+  eastbound_length_min: 12         # Eastbound manifest length draw, counted leaving West staging (Section 9)
+  eastbound_length_max: 20
+  train_nominal_max: 20            # above this = exception overload train
+  three_engines_from: 16           # cars; 15 or fewer = 2 engines
+  capacity:
+    east_staging: 30               # the hidden return loop
+    west_staging: 70               # both car tracks together (pool)
+    yard_track: 35
+
+industries:
+  - id: northfield_paper
+    name: "Northfield Paper"
+    spots:
+      - spot_id: northfield_door_1
+        name: "Loading door 1"
+        requirement_mode: fixed
+        car_type: boxcar
+        direction: outgoing
+        pattern: [East, East, West]
+        disruption_chance: 0.1
+        base_processing_days: 2
+        delay_chance: 0.1
+        cooldown_days: 0
+      - spot_id: northfield_door_2
+        name: "Loading door 2"
+        requirement_mode: fixed
+        car_type: boxcar
+        direction: outgoing
+        pattern: [West, East]
+        disruption_chance: 0.1
+        base_processing_days: 2
+        delay_chance: 0.1
+        cooldown_days: 1
+      - spot_id: northfield_chemical
+        name: "Chemical unloading"
+        requirement_mode: fixed
+        car_type: tank car
+        direction: incoming
+        source: East
+        base_processing_days: 3
+        delay_chance: 0.15
+        cooldown_days: 0
+
+  - id: harbor_feed
+    name: "Harbor Feed Mill"
+    spots:
+      - spot_id: harbor_pit
+        name: "Unloading pit"
+        requirement_mode: fixed
+        car_type: covered hopper
+        direction: incoming
+        source: West
+        base_processing_days: 1
+        delay_chance: 0.2
+        cooldown_days: 1
+      - spot_id: harbor_dock
+        name: "Bagged feed dock"
+        requirement_mode: fixed
+        car_type: boxcar
+        direction: outgoing
+        pattern: [East]
+        disruption_chance: 0.2
+        base_processing_days: 2
+        delay_chance: 0.1
+        cooldown_days: 0
+
+  - id: transfer
+    name: "Transfer Facility"
+    spots:
+      - spot_id: transfer_track_1
+        name: "Team track 1"
+        requirement_mode: fixed
+        car_type: flatcar
+        direction: incoming
+        source: East
+        base_processing_days: 2
+        delay_chance: 0.1
+        cooldown_days: 0
+      - spot_id: transfer_track_2
+        name: "Team track 2"
+        requirement_mode: random
+        possible_requirements:
+          - car_type: boxcar
+            direction: incoming
+            source_weights: {East: 0.5, West: 0.5}
+            weight: 3
+            base_processing_days: 2
+            delay_chance: 0.1
+            cooldown_days: 0
+          - car_type: covered hopper
+            direction: outgoing
+            destination_weights: {East: 0.3, West: 0.7}
+            weight: 1
+            base_processing_days: 3
+            delay_chance: 0.1
+            cooldown_days: 1
+          - car_type: tank car
+            direction: incoming
+            source_weights: {East: 1.0}
+            weight: 1
+            base_processing_days: 2
+            delay_chance: 0.1
+            cooldown_days: 0

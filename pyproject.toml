@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trainops"
+version = "0.1.0"
+description = "Digital train operations for a model railroad: car roster, industry demand, train planning and work lists."
+requires-python = ">=3.13"
+dependencies = [
+    "PyYAML>=6.0",
+    "Flask>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.setuptools]
+packages = ["trainops"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
