@@ -82,6 +82,22 @@ def match_word(value: object, choices: Iterable[str]) -> str | None:
     return None
 
 
+def same_words(a: str, b: str) -> bool:
+    """True if two pieces of text are the same apart from capitals and spacing.
+
+    Used for car types: a "Boxcar" car serves a "boxcar" spot.
+    """
+    return " ".join(a.split()).casefold() == " ".join(b.split()).casefold()
+
+
+def both(items: Iterable[str]) -> str:
+    """Join items for a message: "mark and type", "a, b and c"."""
+    items = list(items)
+    if len(items) <= 1:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
 def either(choices: Iterable[str]) -> str:
     """Join choices for a message: "East or West", "a, b or c"."""
     items = list(choices)

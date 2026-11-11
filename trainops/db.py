@@ -59,6 +59,7 @@ CREATE TABLE car (
     assigned_spot        TEXT,
     dest_world           TEXT CHECK (dest_world IS NULL OR dest_world IN ({_WORLDS})),
     days_held            INTEGER NOT NULL DEFAULT 0 CHECK (days_held >= 0),
+    bad_order            INTEGER NOT NULL DEFAULT 0 CHECK (bad_order IN (0, 1)),
     UNIQUE (mark, number),
     CHECK (
         (loc_kind = '{v.AT_WORLD}' AND loc_ref IN ({_WORLDS}) AND seq IS NULL)
@@ -156,6 +157,7 @@ class Car:
     assigned_spot: str | None  # spot_id
     dest_world: str | None  # East staging | West staging
     days_held: int
+    bad_order: bool  # retired while at a spot: local pulls it, it leaves at West staging
 
     @property
     def label(self) -> str:
@@ -226,6 +228,12 @@ def _row_to(cls, row: sqlite3.Row):
     return cls(**{key: row[key] for key in row.keys()})
 
 
+def _car_from_row(row: sqlite3.Row) -> Car:
+    data = {key: row[key] for key in row.keys()}
+    data["bad_order"] = bool(data["bad_order"])
+    return Car(**data)
+
+
 def _spot_from_row(row: sqlite3.Row) -> SpotState:
     data = {key: row[key] for key in row.keys()}
     for key in _BOOL_SPOT_FIELDS:
@@ -245,16 +253,32 @@ class Database:
         self._in_transaction = False
 
     @classmethod
-    def open(cls, path: str | Path) -> Database:
+    def open(cls, path: str | Path, *, discard_other_version: bool = False) -> Database:
         """Open the database, creating it if it doesn't exist yet.
 
-        Pass ":memory:" for a throwaway database (tests).
+        Pass ":memory:" for a throwaway database (tests). A database made by a
+        different program version is refused, unless discard_other_version is
+        set (cold start only), in which case it is deleted and made afresh.
         """
+        try:
+            return cls._open(path)
+        except DatabaseError:
+            if not discard_other_version or str(path) == ":memory:":
+                raise
+        Path(path).unlink()
+        return cls._open(path)
+
+    @classmethod
+    def _open(cls, path: str | Path) -> Database:
         conn = sqlite3.connect(str(path), autocommit=True)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         db = cls(conn)
-        db._ensure_schema()
+        try:
+            db._ensure_schema()
+        except DatabaseError:
+            conn.close()
+            raise
         return db
 
     def close(self) -> None:
@@ -335,20 +359,20 @@ class Database:
     # --- cars ---
 
     def cars(self) -> list[Car]:
-        return [_row_to(Car, r) for r in self._read("SELECT * FROM car ORDER BY id")]
+        return [_car_from_row(r) for r in self._read("SELECT * FROM car ORDER BY id")]
 
     def car(self, car_id: int) -> Car:
         rows = self._read("SELECT * FROM car WHERE id = ?", (car_id,))
         if not rows:
             raise DatabaseError(f"no car with id {car_id}")
-        return _row_to(Car, rows[0])
+        return _car_from_row(rows[0])
 
     def find_car(self, mark: str, number: str) -> Car | None:
         """Find a car by mark and number; capitals in the mark don't matter."""
         rows = self._read(
             "SELECT * FROM car WHERE mark = ? AND number = ?", (mark.strip(), number.strip())
         )
-        return _row_to(Car, rows[0]) if rows else None
+        return _car_from_row(rows[0]) if rows else None
 
     def cars_at(self, loc_kind: str, loc_ref: str) -> list[Car]:
         """Cars at one place, in order (seq, oldest or head first)."""
@@ -356,7 +380,7 @@ class Database:
             "SELECT * FROM car WHERE loc_kind = ? AND loc_ref = ? ORDER BY seq, id",
             (loc_kind, loc_ref),
         )
-        return [_row_to(Car, r) for r in rows]
+        return [_car_from_row(r) for r in rows]
 
     def add_car(
         self,
@@ -373,6 +397,7 @@ class Database:
         assigned_spot: str | None = None,
         dest_world: str | None = None,
         days_held: int = 0,
+        bad_order: bool = False,
     ) -> Car:
         if self.find_car(mark, number) is not None:
             raise DatabaseError(f"car {mark} {number} is already in the roster")
@@ -389,6 +414,7 @@ class Database:
             assigned_spot=assigned_spot,
             dest_world=dest_world,
             days_held=days_held,
+            bad_order=int(bad_order),
         )
         cursor = self._insert("car", values)
         return self.car(cursor.lastrowid)
@@ -510,6 +536,32 @@ class Database:
 
     def clear_consist_plans(self) -> None:
         self._write("DELETE FROM consist_plan")
+
+    def remove_from_consist_plans(
+        self, *, car_id: int | None = None, engine_id: int | None = None
+    ) -> None:
+        """Take one car or engine out of any plan; the rest close up in order."""
+        column, row_id = ("car_id", car_id) if car_id is not None else ("engine_id", engine_id)
+        rows = self._read(f"SELECT train FROM consist_plan WHERE {column} = ?", (row_id,))
+        self._write(f"DELETE FROM consist_plan WHERE {column} = ?", (row_id,))
+        for train in {r["train"] for r in rows}:
+            entries = self.consist_plan(train)
+            for new_seq, entry in enumerate(entries, 1):
+                if entry.seq != new_seq:
+                    self._write(
+                        "UPDATE consist_plan SET seq = ? WHERE train = ? AND seq = ?",
+                        (new_seq, train, entry.seq),
+                    )
+
+    # --- everything ---
+
+    def clear_all(self) -> None:
+        """Empty every table and start again at day 1 (cold start)."""
+        for table in ("consist_plan", "car", "engine", "spot_state"):
+            self._write(f"DELETE FROM {table}")
+        self.update_session(
+            day=1, **{flag: False for flag in _SESSION_FLAGS}
+        )
 
     # --- helpers ---
 
