@@ -19,6 +19,8 @@ industry is shown only by where it goes next (user, 2026-11-11).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from trainops import spots
 from trainops import vocab as v
 from trainops.config import Config, Spot
@@ -161,21 +163,8 @@ def local_list(db: Database, config: Config) -> str:
             f"{title}\n  No work for the local today."
 
     states = db.spot_states()
-    at_spot = {c.loc_ref: c for c in db.cars() if c.loc_kind == v.AT_SPOT}
-    pulls: dict[str, Car] = {
-        spot_id: car for spot_id, car in at_spot.items()
-        if car.bad_order or states[spot_id].state == v.READY_FOR_PICKUP
-    }
-    pending: dict[str, Car] = {}
-    spotted: dict[str, Car] = {}
-    for entry in db.consist_plan(v.LOCAL):
-        if entry.car_id is None:
-            continue
-        car = db.car(entry.car_id)
-        if car.assigned_spot is not None:
-            pending[car.assigned_spot] = car
-        elif car.loc_kind == v.AT_SPOT:
-            spotted[car.loc_ref] = car
+    work = local_work(db)
+    pulls, pending, spotted = work.pulls, work.pending, work.spotted
 
     lines = [title]
     for industry in config.industries:
@@ -205,10 +194,39 @@ def local_list(db: Database, config: Config) -> str:
               if m.car.loc_kind == v.AT_TRAIN and m.car.assigned_spot is None]
     if pulled:
         lines.append("PULLED, BACK TO THE YARD")
-        lines += _columns([(f"{m.car.label} {m.car.type}", f"→ {m.track}", f"({m.reason})")
+        lines += _columns([(f"{m.car.label} {m.car.type}", f"→ {m.track}")
                            for m in pulled], indent=2)
     lines.append(button(v.LOCAL_BACK))
     return "\n".join(lines)
+
+
+@dataclass(frozen=True)
+class LocalWork:
+    """The local's moves today, by spot id."""
+
+    pulls: dict[str, Car]  # cars to pull (ready for pickup, or bad order)
+    pending: dict[str, Car]  # cars still to set out
+    spotted: dict[str, Car]  # cars set out today
+
+
+def local_work(db: Database) -> LocalWork:
+    states = db.spot_states()
+    at_spot = {c.loc_ref: c for c in db.cars() if c.loc_kind == v.AT_SPOT}
+    pulls = {
+        spot_id: car for spot_id, car in at_spot.items()
+        if car.bad_order or states[spot_id].state == v.READY_FOR_PICKUP
+    }
+    pending: dict[str, Car] = {}
+    spotted: dict[str, Car] = {}
+    for entry in db.consist_plan(v.LOCAL):
+        if entry.car_id is None:
+            continue
+        car = db.car(entry.car_id)
+        if car.assigned_spot is not None:
+            pending[car.assigned_spot] = car
+        elif car.loc_kind == v.AT_SPOT:
+            spotted[car.loc_ref] = car
+    return LocalWork(pulls, pending, spotted)
 
 
 def _pull_load(spot: Spot, state, car: Car) -> str:
@@ -298,6 +316,51 @@ def _where(car: Car) -> str:
         return f"on the {car.loc_ref.lower()}" if car.loc_ref == v.LOCAL else \
             f"coming on the {car.loc_ref.lower()}"
     return f"coming from {car.loc_ref}"
+
+
+# --- the buttons that can be pressed now ------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Action:
+    """One signal that can be sent now, with its button text."""
+
+    label: str
+    signal: str
+    spot_id: str | None = None
+
+
+def actions(db: Database, config: Config) -> list[Action]:
+    """The signals the current job accepts now (the page's buttons).
+
+    The local's set-out at a spot appears once that spot's pull is done.
+    """
+    session = db.session()
+    job = current_job(session)
+    if job == v.JOB_CHORES:
+        return [Action(signal, signal) for signal, done in (
+            (v.WEST_CHORE_DONE, session.west_chore_done),
+            (v.EAST_CHORE_DONE, session.east_chore_done)) if not done]
+    if job == v.JOB_LOCAL:
+        work = local_work(db)
+        occupied = {c.loc_ref for c in db.cars() if c.loc_kind == v.AT_SPOT}
+        found = []
+        for spot in config.spots:
+            sid = spot.spot_id
+            if sid in work.pulls:
+                car = work.pulls[sid]
+                found.append(Action(f"Pull {car.label} ← {spot.label}", v.PULL_DONE, sid))
+            if sid in work.pending and sid not in occupied:
+                car = work.pending[sid]
+                found.append(Action(f"Spot {car.label} → {spot.label}", v.SET_OUT_DONE, sid))
+        return found + [Action(v.LOCAL_BACK, v.LOCAL_BACK)]
+    signal = {
+        v.SWITCH_WESTBOUND: v.SWITCH_WESTBOUND_DONE,
+        v.LOCAL_RETURN: v.LOCAL_RETURN_DONE,
+        v.SWITCH_EASTBOUND: v.SWITCH_EASTBOUND_DONE,
+        v.JOB_END: v.SESSION_COMPLETE,
+    }[job]
+    return [Action(signal, signal)]
 
 
 # --- the current job -------------------------------------------------------------------

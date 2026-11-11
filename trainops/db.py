@@ -228,10 +228,14 @@ def _row_to(cls, row: sqlite3.Row):
     return cls(**{key: row[key] for key in row.keys()})
 
 
+# Car columns in the dataclass's field order, so a row converts by position (fast:
+# the simulator reads the car table thousands of times).
+_CAR_SELECT = ", ".join(f.name for f in fields(Car))
+assert fields(Car)[-1].name == "bad_order"
+
+
 def _car_from_row(row: sqlite3.Row) -> Car:
-    data = {key: row[key] for key in row.keys()}
-    data["bad_order"] = bool(data["bad_order"])
-    return Car(**data)
+    return Car(*row[:-1], bool(row[-1]))
 
 
 def _spot_from_row(row: sqlite3.Row) -> SpotState:
@@ -359,10 +363,10 @@ class Database:
     # --- cars ---
 
     def cars(self) -> list[Car]:
-        return [_car_from_row(r) for r in self._read("SELECT * FROM car ORDER BY id")]
+        return [_car_from_row(r) for r in self._read(f"SELECT {_CAR_SELECT} FROM car ORDER BY id")]
 
     def car(self, car_id: int) -> Car:
-        rows = self._read("SELECT * FROM car WHERE id = ?", (car_id,))
+        rows = self._read(f"SELECT {_CAR_SELECT} FROM car WHERE id = ?", (car_id,))
         if not rows:
             raise DatabaseError(f"no car with id {car_id}")
         return _car_from_row(rows[0])
@@ -370,14 +374,14 @@ class Database:
     def find_car(self, mark: str, number: str) -> Car | None:
         """Find a car by mark and number; capitals in the mark don't matter."""
         rows = self._read(
-            "SELECT * FROM car WHERE mark = ? AND number = ?", (mark.strip(), number.strip())
+            f"SELECT {_CAR_SELECT} FROM car WHERE mark = ? AND number = ?", (mark.strip(), number.strip())
         )
         return _car_from_row(rows[0]) if rows else None
 
     def cars_at(self, loc_kind: str, loc_ref: str) -> list[Car]:
         """Cars at one place, in order (seq, oldest or head first)."""
         rows = self._read(
-            "SELECT * FROM car WHERE loc_kind = ? AND loc_ref = ? ORDER BY seq, id",
+            f"SELECT {_CAR_SELECT} FROM car WHERE loc_kind = ? AND loc_ref = ? ORDER BY seq, id",
             (loc_kind, loc_ref),
         )
         return [_car_from_row(r) for r in rows]
