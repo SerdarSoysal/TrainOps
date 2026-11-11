@@ -34,7 +34,7 @@ def base_config():
                         "source": "East",
                         "base_processing_days": 3,
                         "delay_chance": 0.1,
-                        "cooldown_days": 0,
+                        "idle_days": 0,
                     },
                     {
                         "spot_id": "industry_1_door_2",
@@ -46,7 +46,7 @@ def base_config():
                         "disruption_chance": 0.1,
                         "base_processing_days": 2,
                         "delay_chance": 0.1,
-                        "cooldown_days": 1,
+                        "idle_days": 1,
                     },
                 ],
             },
@@ -66,7 +66,7 @@ def base_config():
                                 "weight": 3,
                                 "base_processing_days": 2,
                                 "delay_chance": 0.1,
-                                "cooldown_days": 0,
+                                "idle_days": 0,
                             },
                             {
                                 "car_type": "covered hopper",
@@ -160,12 +160,12 @@ def test_words_match_regardless_of_capitals_and_spaces():
 
 def test_optional_fields_take_defaults():
     cfg = base_config()
-    for key in ("disruption_chance", "delay_chance", "cooldown_days"):
+    for key in ("disruption_chance", "delay_chance", "idle_days"):
         del door_2(cfg)[key]
     del random_spot(cfg)["possible_requirements"][0]["weight"]
     config = parse_config(cfg)
     fixed = config.spot("industry_1_door_2").fixed
-    assert (fixed.disruption_chance, fixed.delay_chance, fixed.cooldown_days) == (0.0, 0.0, 0)
+    assert (fixed.disruption_chance, fixed.delay_chance, fixed.idle_days) == (0.0, 0.0, 0)
     assert config.spot("transfer_track_2").possible_requirements[0].weight == 1.0
 
 
@@ -276,7 +276,7 @@ def test_wrong_word_names_the_choices():
     cfg = base_config()
     door_1(cfg)["direction"] = "incomming"
     assert only_problem(cfg) == (
-        "Industry #1, Loading door 1: 'direction' is 'incomming' — expected incoming or outgoing"
+        "Industry #1, Loading door 1: 'direction' is 'incomming' — expected Incoming or Outgoing"
     )
 
 
@@ -294,9 +294,9 @@ def test_position_in_config_is_refused():
 
 def test_misspelled_spot_field_suggests_the_right_name():
     cfg = base_config()
-    door_2(cfg)["cooldown_day"] = 1
+    door_2(cfg)["idle_day"] = 1
     assert only_problem(cfg) == (
-        "Industry #1, Loading door 2: unknown field 'cooldown_day' (did you mean 'cooldown_days'?)"
+        "Industry #1, Loading door 2: unknown field 'idle_day' (did you mean 'idle_days'?)"
     )
 
 

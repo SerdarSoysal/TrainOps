@@ -13,7 +13,7 @@ spelling (see `vocab`). Optional fields and their defaults:
                              DEFAULT_DELAY_CHANCE_MAX
     disruption_chance        0
     delay_chance             0
-    cooldown_days            0
+    idle_days            0
     weight (random spots)    1
 """
 
@@ -66,7 +66,7 @@ FIXED_ONLY_FIELDS = (
     "disruption_chance",
     "base_processing_days",
     "delay_chance",
-    "cooldown_days",
+    "idle_days",
 )
 RANDOM_ONLY_FIELDS = ("possible_requirements",)
 SPOT_FIELDS = SPOT_COMMON_FIELDS + FIXED_ONLY_FIELDS + RANDOM_ONLY_FIELDS
@@ -78,7 +78,7 @@ REQUIREMENT_FIELDS = (
     "weight",
     "base_processing_days",
     "delay_chance",
-    "cooldown_days",
+    "idle_days",
 )
 
 
@@ -114,7 +114,7 @@ class FixedRequirement:
     disruption_chance: float  # outgoing only; 0 for incoming
     base_processing_days: int
     delay_chance: float
-    cooldown_days: int
+    idle_days: int
 
 
 @dataclass(frozen=True)
@@ -128,7 +128,7 @@ class RandomRequirement:
     weight: float
     base_processing_days: int
     delay_chance: float
-    cooldown_days: int
+    idle_days: int
 
 
 @dataclass(frozen=True)
@@ -561,7 +561,7 @@ def _check_fixed(ck: _Checker, label: str, raw: dict) -> FixedRequirement | None
         disruption = ck.chance(label, raw, "disruption_chance")
     base_days = ck.whole(label, raw, "base_processing_days", 1)
     delay = ck.chance(label, raw, "delay_chance", allow_one=False)
-    cooldown = ck.whole(label, raw, "cooldown_days", 0, default=0)
+    idle = ck.whole(label, raw, "idle_days", 0, default=0)
     return FixedRequirement(
         car_type=car_type,
         direction=direction,
@@ -570,7 +570,7 @@ def _check_fixed(ck: _Checker, label: str, raw: dict) -> FixedRequirement | None
         disruption_chance=disruption,
         base_processing_days=base_days,
         delay_chance=delay,
-        cooldown_days=cooldown,
+        idle_days=idle,
     )
 
 
@@ -625,7 +625,7 @@ def _check_possible_requirements(
                 weight=ck.positive(where, item, "weight", default=1.0),
                 base_processing_days=ck.whole(where, item, "base_processing_days", 1),
                 delay_chance=ck.chance(where, item, "delay_chance", allow_one=False),
-                cooldown_days=ck.whole(where, item, "cooldown_days", 0, default=0),
+                idle_days=ck.whole(where, item, "idle_days", 0, default=0),
             )
         )
     return tuple(requirements)

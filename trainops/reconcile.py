@@ -1,26 +1,18 @@
-"""Bring saved spot states in line with the configuration (spec Section 16.1).
+"""Spot states versus the configuration (spec Section 16.1, as agreed 2026-11-11).
 
-Runs whenever the program starts with a configuration, in one transaction.
-Runtime state is never reset just because the configuration was reloaded.
-The rules:
+Spot states are created only at cold start (`create_spot_states`). At every
+start-up `check_config` compares the configuration with what was recorded at
+the last cold start.
 
-- A spot new in the configuration gets a fresh state: awaiting a car,
-  waiting since today.
-- A spot removed from the configuration is reported; its saved state is
-  kept (so it comes back if the spot is restored) but ignored. Any car at
-  that spot or assigned to it is reported too.
-- If an outgoing spot's pattern got shorter, its position wraps around.
+These changes need a cold start (the program refuses to run until one is done):
+- an industry or spot added or removed, or an id / spot_id changed
+- a spot's mode (Fixed / Random), car type or direction changed
+- a random spot's list of possible requirements changed (one added or removed,
+  or one's car type or direction changed)
 
-Two more cases follow from changing a spot's requirements:
-
-- A random spot whose drawn requirement no longer exists (the list got
-  shorter, or the spot used to be fixed) is reset to awaiting a car, so it
-  draws again. A car still at the spot is reported, to be moved with the
-  edit tool.
-- A spot changed from random to fixed drops its random-draw fields.
-
-A day-ahead random draw that no longer exists is simply cleared; it is
-rolled again at the next day advance.
+Everything else takes effect without one: names, settings, processing days,
+delay / disruption chances, idle days, weights and patterns. If a pattern got
+shorter, the spot's position wraps around.
 """
 
 from __future__ import annotations
@@ -32,91 +24,79 @@ from trainops.config import Config, Spot
 from trainops.db import Database, SpotState
 
 
-def reconcile_spot_states(db: Database, config: Config) -> list[str]:
-    """Update spot states for this configuration. Returns plain-language notes."""
+class ColdStartNeeded(Exception):
+    """The database doesn't match the configuration; `reasons` says why."""
+
+    def __init__(self, reasons: list[str]):
+        self.reasons = list(reasons)
+        head = "A cold start is needed before the program can run:"
+        super().__init__("\n".join([head] + [f"  - {r}" for r in self.reasons]))
+
+
+def spot_identity(spot: Spot) -> str:
+    """What about a spot needs a cold start to change, in plain words.
+
+    For example "Fixed: boxcar, Outgoing" or
+    "Random: boxcar, Incoming; covered hopper, Outgoing".
+    """
+    if spot.requirement_mode == v.FIXED:
+        return f"{v.FIXED}: {spot.fixed.car_type}, {spot.fixed.direction}"
+    parts = "; ".join(f"{r.car_type}, {r.direction}" for r in spot.possible_requirements)
+    return f"{v.RANDOM}: {parts}"
+
+
+def create_spot_states(db: Database, config: Config) -> None:
+    """Give every spot a fresh state. Cold start only; call inside its transaction."""
+    day = db.session().day
+    for spot in config.spots:
+        db.put_spot_state(
+            SpotState.fresh(
+                spot.spot_id, day, industry_id=spot.industry_id, identity=spot_identity(spot)
+            )
+        )
+
+
+def check_config(db: Database, config: Config) -> list[str]:
+    """Check the configuration against the last cold start.
+
+    Raises ColdStartNeeded listing every difference that needs one. Otherwise
+    applies the changes that don't (pattern wrap-around) in one transaction
+    and returns plain-language notes about them.
+    """
+    saved = db.spot_states()
+    if not saved:
+        raise ColdStartNeeded(["no cold start has been done yet."])
+
+    reasons: list[str] = []
+    for spot in config.spots:
+        state = saved.get(spot.spot_id)
+        if state is None:
+            reasons.append(f"{spot.label} is new.")
+            continue
+        if state.industry_id != spot.industry_id:
+            reasons.append(
+                f"{spot.label}: its industry id changed from '{state.industry_id}' "
+                f"to '{spot.industry_id}'."
+            )
+        identity = spot_identity(spot)
+        if identity.casefold() != state.identity.casefold():
+            reasons.append(f"{spot.label} changed from '{state.identity}' to '{identity}'.")
+    for spot_id in saved:
+        if spot_id not in config.spots_by_id:
+            reasons.append(f"the spot with id '{spot_id}' was removed.")
+    if reasons:
+        raise ColdStartNeeded(reasons)
+
     notes: list[str] = []
     with db.transaction():
-        day = db.session().day
-        saved = db.spot_states()
-
         for spot in config.spots:
-            state = saved.get(spot.spot_id)
-            if state is None:
-                db.put_spot_state(SpotState.fresh(spot.spot_id, day))
-                notes.append(f"{spot.label}: new spot, now awaiting a car.")
-                continue
-            new_state, spot_notes = _fit_to_config(db, spot, state, day)
-            if new_state != state:
-                db.put_spot_state(new_state)
-            notes.extend(spot_notes)
-
-        for spot_id in saved:
-            if spot_id in config.spots_by_id:
-                continue
-            notes.append(
-                f"The spot with id '{spot_id}' is no longer in the configuration. "
-                f"Its saved state is kept but ignored."
-            )
-            for car in db.cars():
-                if car.loc_kind == v.AT_SPOT and car.loc_ref == spot_id:
-                    notes.append(
-                        f"  Car {car.label} is still at that spot — move it with the edit tool."
-                    )
-                if car.assigned_spot == spot_id:
-                    notes.append(
-                        f"  Car {car.label} is assigned to that spot — fix it with the edit tool."
-                    )
+            state = saved[spot.spot_id]
+            pattern = spot.fixed.pattern if spot.fixed else ()
+            if pattern and state.position >= len(pattern):
+                wrapped = state.position % len(pattern)
+                db.put_spot_state(replace(state, position=wrapped))
+                notes.append(
+                    f"{spot.label}: pattern is shorter now; position {state.position + 1} "
+                    f"wraps around to {wrapped + 1}."
+                )
     return notes
-
-
-def _fit_to_config(
-    db: Database, spot: Spot, state: SpotState, day: int
-) -> tuple[SpotState, list[str]]:
-    notes: list[str] = []
-
-    if spot.requirement_mode == v.FIXED:
-        if state.requirement_number is not None or state.next_requirement_number is not None:
-            state = replace(
-                state,
-                requirement_number=None,
-                requirement_side=None,
-                next_requirement_number=None,
-                next_requirement_side=None,
-            )
-            notes.append(f"{spot.label}: now a fixed spot; it follows its fixed requirement.")
-        pattern = spot.fixed.pattern
-        if pattern and state.position >= len(pattern):
-            wrapped = state.position % len(pattern)
-            notes.append(
-                f"{spot.label}: pattern is shorter now; position {state.position + 1} "
-                f"wraps around to {wrapped + 1}."
-            )
-            state = replace(state, position=wrapped)
-        return state, notes
-
-    # Random spot.
-    count = len(spot.possible_requirements)
-    if state.next_requirement_number is not None and state.next_requirement_number > count:
-        state = replace(state, next_requirement_number=None, next_requirement_side=None)
-
-    drawn = state.requirement_number
-    lost_draw = (drawn is not None and drawn > count) or (
-        drawn is None and state.state != v.AWAITING_CAR
-    )
-    if lost_draw:
-        state = replace(
-            SpotState.fresh(spot.spot_id, day),
-            position=state.position,
-            next_requirement_number=state.next_requirement_number,
-            next_requirement_side=state.next_requirement_side,
-        )
-        notes.append(
-            f"{spot.label}: its current requirement is no longer in the configuration; "
-            f"the spot is reset to awaiting a car and will draw a new one."
-        )
-        car_there = db.cars_at(v.AT_SPOT, spot.spot_id)
-        for car in car_there:
-            notes.append(
-                f"  Car {car.label} is still at that spot — move it with the edit tool."
-            )
-    return state, notes

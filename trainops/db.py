@@ -16,7 +16,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 
 from trainops import vocab as v
@@ -93,7 +93,9 @@ CREATE TABLE engine (
 
 CREATE TABLE spot_state (
     spot_id                 TEXT PRIMARY KEY,
-    state                   TEXT NOT NULL CHECK (state IN ({_sql_list(v.SPOT_STATES)})),
+    industry_id             TEXT NOT NULL,  -- as at the last cold start
+    identity                TEXT NOT NULL,  -- mode, car type(s), direction(s) at the last cold start
+    state                  TEXT NOT NULL CHECK (state IN ({_sql_list(v.SPOT_STATES)})),
     days_left               INTEGER CHECK (days_left IS NULL OR days_left >= 0),
     position                INTEGER NOT NULL DEFAULT 0 CHECK (position >= 0),
     requirement_number      INTEGER CHECK (requirement_number IS NULL OR requirement_number >= 1),
@@ -180,6 +182,9 @@ class Engine:
 class SpotState:
     spot_id: str
     state: str
+    # Recorded at cold start; a later config that changes them needs a cold start.
+    industry_id: str = field(kw_only=True)
+    identity: str = field(kw_only=True)
     days_left: int | None = None
     position: int = 0
     requirement_number: int | None = None  # random spots: which possible requirement (1 = first)
@@ -191,9 +196,15 @@ class SpotState:
     next_requirement_side: str | None = None
 
     @classmethod
-    def fresh(cls, spot_id: str, day: int) -> SpotState:
-        """A spot just added: empty and waiting for a car from today."""
-        return cls(spot_id=spot_id, state=v.AWAITING_CAR, waiting_since_day=day)
+    def fresh(cls, spot_id: str, day: int, *, industry_id: str, identity: str) -> SpotState:
+        """A spot at cold start: empty and waiting for a car from today."""
+        return cls(
+            spot_id=spot_id,
+            state=v.AWAITING_CAR,
+            waiting_since_day=day,
+            industry_id=industry_id,
+            identity=identity,
+        )
 
 
 @dataclass(frozen=True)

@@ -27,7 +27,7 @@ industries:
         disruption_chance: 0.1
         base_processing_days: 2
         delay_chance: 0.1
-        cooldown_days: 0
+        idle_days: 0
       - spot_id: northfield_door_2
         name: "Loading door 2"
         requirement_mode: fixed
@@ -37,7 +37,7 @@ industries:
         disruption_chance: 0.1
         base_processing_days: 2
         delay_chance: 0.1
-        cooldown_days: 1
+        idle_days: 1
       - spot_id: northfield_chemical
         name: "Chemical unloading"
         requirement_mode: fixed
@@ -46,7 +46,7 @@ industries:
         source: East
         base_processing_days: 3
         delay_chance: 0.15
-        cooldown_days: 0
+        idle_days: 0
 
   - id: harbor_feed
     name: "Harbor Feed Mill"
@@ -59,7 +59,7 @@ industries:
         source: West
         base_processing_days: 1
         delay_chance: 0.2
-        cooldown_days: 1
+        idle_days: 1
       - spot_id: harbor_dock
         name: "Bagged feed dock"
         requirement_mode: fixed
@@ -69,7 +69,7 @@ industries:
         disruption_chance: 0.2
         base_processing_days: 2
         delay_chance: 0.1
-        cooldown_days: 0
+        idle_days: 0
 
   - id: transfer
     name: "Transfer Facility"
@@ -82,7 +82,7 @@ industries:
         source: East
         base_processing_days: 2
         delay_chance: 0.1
-        cooldown_days: 0
+        idle_days: 0
       - spot_id: transfer_track_2
         name: "Team track 2"
         requirement_mode: random
@@ -93,18 +93,18 @@ industries:
             weight: 3
             base_processing_days: 2
             delay_chance: 0.1
-            cooldown_days: 0
+            idle_days: 0
           - car_type: covered hopper
             direction: outgoing
             destination_weights: {East: 0.3, West: 0.7}
             weight: 1
             base_processing_days: 3
             delay_chance: 0.1
-            cooldown_days: 1
+            idle_days: 1
           - car_type: tank car
             direction: incoming
             source_weights: {East: 1.0}
             weight: 1
             base_processing_days: 2
             delay_chance: 0.1
-            cooldown_days: 0
+            idle_days: 0

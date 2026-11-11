@@ -266,6 +266,8 @@ def test_impossible_engine_values_are_refused(db, where):
 
 # --- spot states -----------------------------------------------------------------------
 
+PIT = dict(industry_id="harbor_feed", identity="Fixed: covered hopper, Incoming")
+
 
 def test_spot_state_round_trip(db):
     state = SpotState(
@@ -280,6 +282,8 @@ def test_spot_state_round_trip(db):
         next_delay=True,
         next_requirement_number=2,
         next_requirement_side=v.WEST,
+        industry_id="transfer",
+        identity="Random: boxcar, Incoming; covered hopper, Outgoing",
     )
     with db.transaction():
         db.put_spot_state(state)
@@ -289,15 +293,15 @@ def test_spot_state_round_trip(db):
 
 def test_put_spot_state_replaces_the_old_one(db):
     with db.transaction():
-        db.put_spot_state(SpotState.fresh("harbor_pit", day=1))
-        db.put_spot_state(SpotState("harbor_pit", v.PROCESSING, days_left=1))
+        db.put_spot_state(SpotState.fresh("harbor_pit", day=1, **PIT))
+        db.put_spot_state(SpotState("harbor_pit", v.PROCESSING, days_left=1, **PIT))
     assert db.spot_state("harbor_pit").state == v.PROCESSING
     assert len(db.spot_states()) == 1
 
 
 def test_fresh_spot_state_is_awaiting_a_car():
-    state = SpotState.fresh("harbor_pit", day=7)
-    assert state.state == v.AWAITING_CAR
+    state = SpotState.fresh("harbor_pit", day=7, **PIT)
+    assert state.state == v.AWAITING_CAR == "Awaiting car"
     assert state.waiting_since_day == 7
     assert state.position == 0
 
@@ -309,9 +313,11 @@ def test_unknown_spot_state_is_none(db):
 def test_impossible_spot_values_are_refused(db):
     with db.transaction():
         with pytest.raises(sqlite3.IntegrityError):
-            db.put_spot_state(SpotState("harbor_pit", "EMPTY_AWAITING_CAR"))
+            db.put_spot_state(SpotState("harbor_pit", "EMPTY_AWAITING_CAR", **PIT))
         with pytest.raises(sqlite3.IntegrityError):
-            db.put_spot_state(SpotState("harbor_pit", v.READY_FOR_PICKUP, out_dest="E"))
+            db.put_spot_state(SpotState("harbor_pit", "awaiting car", **PIT))  # sentence case only
+        with pytest.raises(sqlite3.IntegrityError):
+            db.put_spot_state(SpotState("harbor_pit", v.READY_FOR_PICKUP, out_dest="E", **PIT))
 
 
 # --- consist plan ----------------------------------------------------------------------
