@@ -21,6 +21,50 @@ FIXED = "fixed"
 RANDOM = "random"
 REQUIREMENT_MODES = (FIXED, RANDOM)
 
+# Spot states (spec Section 5).
+AWAITING_CAR = "awaiting car"
+PROCESSING = "processing"
+READY_FOR_PICKUP = "ready for pickup"
+COOLDOWN = "cooldown"
+SPOT_STATES = (AWAITING_CAR, PROCESSING, READY_FOR_PICKUP, COOLDOWN)
+
+# Places (spec Section 16.3). A location is a kind plus one of these names.
+EAST_STAGING = "East staging"  # the hidden return loop
+WEST_STAGING = "West staging"
+WORLDS = (EAST_STAGING, WEST_STAGING)
+
+EASTBOUND_TRACK = "Eastbound track"
+WESTBOUND_TRACK = "Westbound track"
+LOCALS_TRACK = "Locals track"
+YARD_TRACKS = (EASTBOUND_TRACK, WESTBOUND_TRACK, LOCALS_TRACK)
+
+WESTBOUND_MANIFEST = "Westbound manifest"
+EASTBOUND_MANIFEST = "Eastbound manifest"
+LOCAL = "Local"
+TRAINS = (WESTBOUND_MANIFEST, EASTBOUND_MANIFEST, LOCAL)
+
+STORAGE = "Storage"  # engines only
+
+# Location kinds.
+AT_WORLD = "world"
+AT_YARD = "yard"
+AT_SPOT = "spot"
+AT_TRAIN = "train"
+AT_STORAGE = "storage"
+LOCATION_KINDS = (AT_WORLD, AT_YARD, AT_SPOT, AT_TRAIN, AT_STORAGE)
+
+# Car loads.
+LOADED = "loaded"
+EMPTY = "empty"
+NOT_TRACKED = "not tracked"
+LOADS = (LOADED, EMPTY, NOT_TRACKED)
+
+# Engine pools.
+POOL_LOCAL = "local"
+POOL_SWITCHER = "switcher"
+POOL_MANIFEST = "manifest"
+POOLS = (POOL_LOCAL, POOL_SWITCHER, POOL_MANIFEST)
+
 
 def match_word(value: object, choices: Iterable[str]) -> str | None:
     """Return the canonical spelling of `value` among `choices`, or None.
