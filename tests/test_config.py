@@ -178,6 +178,7 @@ def test_missing_settings_use_defaults():
     assert settings.eastbound_length_max == 20
     assert settings.train_nominal_max == 20
     assert settings.three_engines_from == 16
+    assert settings.delay_chance_max == 1.0
     assert settings.capacity.east_staging == 30
     assert settings.capacity.west_staging == 70
     assert settings.capacity.yard_track == 35
@@ -231,6 +232,19 @@ def test_setting_must_be_a_whole_number(value):
         assert parse_config(cfg).settings.eastbound_length_min == 12
         return
     assert "'eastbound_length_min' must be a whole number of 1 or more" in only_problem(cfg)
+
+
+def test_delay_chance_max_can_be_lowered():
+    cfg = base_config()
+    cfg["settings"]["delay_chance_max"] = 0.5
+    assert parse_config(cfg).settings.delay_chance_max == 0.5
+
+
+@pytest.mark.parametrize("value", [1.5, -0.1, "half"])
+def test_delay_chance_max_must_be_from_0_to_1(value):
+    cfg = base_config()
+    cfg["settings"]["delay_chance_max"] = value
+    assert "'delay_chance_max' must be a number from 0 to 1" in only_problem(cfg)
 
 
 def test_capacity_must_be_at_least_one():

@@ -9,7 +9,8 @@ each prefixed with where it is, for example:
 
 Words are matched regardless of capitals and stored in their canonical
 spelling (see `vocab`). Optional fields and their defaults:
-    settings (each one)      the defaults in DEFAULT_SETTINGS / DEFAULT_CAPACITY
+    settings (each one)      the defaults in DEFAULT_SETTINGS / DEFAULT_CAPACITY /
+                             DEFAULT_DELAY_CHANCE_MAX
     disruption_chance        0
     delay_chance             0
     cooldown_days            0
@@ -45,6 +46,9 @@ DEFAULT_SETTINGS: dict[str, tuple[int, int]] = {
     "train_nominal_max": (20, 1),
     "three_engines_from": (16, 1),
 }
+# Cap on every spot's delay_chance: the program uses the lower of the two.
+# 1 means no extra cap. Lower it to make delays rarer everywhere at once.
+DEFAULT_DELAY_CHANCE_MAX = 1.0
 DEFAULT_CAPACITY: dict[str, int] = {
     "east_staging": 30,
     "west_staging": 70,
@@ -95,6 +99,7 @@ class Settings:
     eastbound_length_max: int
     train_nominal_max: int
     three_engines_from: int
+    delay_chance_max: float  # caps every spot's delay_chance
     capacity: Capacity
 
 
@@ -332,9 +337,11 @@ class _Checker:
             return None
         return value
 
-    def chance(self, where: str, data: dict, key: str, *, allow_one: bool = True) -> float | None:
+    def chance(
+        self, where: str, data: dict, key: str, *, allow_one: bool = True, default: float = 0.0
+    ) -> float | None:
         if data.get(key) is None:
-            return 0.0
+            return default
         value = data[key]
         if _is_number(value) and 0 <= value and (value <= 1 if allow_one else value < 1):
             return float(value)
@@ -372,11 +379,14 @@ def _check_settings(ck: _Checker, raw: object) -> Settings | None:
         ck.problem(where, "must be a section of named values")
         return None
     start = len(ck.problems)
-    ck.unknown_fields(where, raw, (*DEFAULT_SETTINGS, "capacity"))
-    values = {
+    ck.unknown_fields(where, raw, (*DEFAULT_SETTINGS, "delay_chance_max", "capacity"))
+    values: dict[str, object] = {
         key: ck.whole(where, raw, key, minimum, default=default)
         for key, (default, minimum) in DEFAULT_SETTINGS.items()
     }
+    values["delay_chance_max"] = ck.chance(
+        where, raw, "delay_chance_max", default=DEFAULT_DELAY_CHANCE_MAX
+    )
 
     cap_where = "Settings, capacity"
     cap_raw = raw.get("capacity")
