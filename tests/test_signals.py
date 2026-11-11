@@ -64,7 +64,8 @@ def run_local(db, config, rng, skip_chance=0.0):
 def finish_day(db, config, seed):
     if not db.session().local_back:
         send(db, config, v.LOCAL_BACK)
-    send(db, config, v.LOCAL_RETURN_DONE)
+    if not db.session().local_return_done:  # skipped when there is nothing to sort
+        send(db, config, v.LOCAL_RETURN_DONE)
     send(db, config, v.SWITCH_EASTBOUND_DONE)
     return send(db, config, v.SESSION_COMPLETE, seed=seed)
 
@@ -352,11 +353,34 @@ def test_local_is_skipped_when_it_has_no_work(tmp_path, samples_dir):
                rng=random.Random(1))
     send(db, config, v.WEST_CHORE_DONE)
     send(db, config, v.EAST_CHORE_DONE)
-    assert "No work for the local today." in send(db, config, v.SWITCH_WESTBOUND_DONE)
+    notes = send(db, config, v.SWITCH_WESTBOUND_DONE)
+    assert notes[-2:] == ["No work for the local today.", "Nothing for the Local return job today."]
     session = db.session()
-    assert session.local_back and not session.local_has_work
-    assert current_job(session) == v.LOCAL_RETURN
+    assert session.local_back and not session.local_has_work and session.local_return_done
+    assert current_job(session) == v.SWITCH_EASTBOUND
     assert db.engines_at(v.AT_TRAIN, v.LOCAL) == []
+
+
+def test_local_return_job_is_skipped_when_the_local_brings_nothing_back(railroad):
+    db, config = railroad
+    to_the_local(db, config)
+    for car in db.cars_at(v.AT_TRAIN, v.LOCAL):  # deliver everything, pull nothing
+        send(db, config, v.SET_OUT_DONE, car.assigned_spot)
+    assert db.cars_at(v.AT_YARD, v.LOCALS_TRACK) == []
+    notes = send(db, config, v.LOCAL_BACK)
+    assert notes == ["Nothing for the Local return job today."]
+    assert current_job(db.session()) == v.SWITCH_EASTBOUND
+    assert db.engines_at(v.AT_TRAIN, v.LOCAL) == []  # the local's engines are put away
+    with pytest.raises(SignalRefused, match="^Local return job is already done.$"):
+        send(db, config, v.LOCAL_RETURN_DONE)
+
+
+def test_eastbound_cant_enter_the_yard_before_the_local_return_job(railroad):
+    db, config = railroad
+    to_the_local(db, config)
+    send(db, config, v.LOCAL_BACK)  # the local brought back undelivered cars
+    with pytest.raises(SignalRefused, match="^Waiting on the Local return job.$"):
+        send(db, config, v.SWITCH_EASTBOUND_DONE)
 
 
 # --- whole days ------------------------------------------------------------------------

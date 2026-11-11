@@ -10,8 +10,11 @@ Signals are taken in sequence order:
     Pull done / Set-out done (per spot, any order; a set-out on an occupied
         spot waits for its pull)
     Local back in yard                 (skipped automatically if no local work)
-    Local return job done
-    Switch eastbound done
+    Local return job done              (skipped automatically if nothing to sort)
+    Switch eastbound done              (the eastbound may leave West staging
+                                        earlier and wait in a siding, but can't
+                                        enter the yard until the Local return
+                                        job is done: user, 2026-11-11)
     Session complete                   (the day advance)
 A signal for a later job while an earlier one is pending is refused with
 "Waiting on ...". Undoing a mistaken signal is done with the edit tool.
@@ -172,7 +175,7 @@ def _build_manifest(db: Database, train: str, world: str) -> list[str]:
     return notes
 
 
-# --- Switch westbound and the local ---------------------------------------------------------------
+# --- Switch westbound and the local ----------------------------------------------------
 
 
 def _switch_westbound(db, config, spot_id, rng):
@@ -193,6 +196,7 @@ def _switch_westbound(db, config, spot_id, rng):
     else:
         db.update_session(local_has_work=False, local_back=True)
         notes.append("No work for the local today.")
+        notes += _skip_local_return_if_nothing(db, config)
     return notes
 
 
@@ -266,13 +270,22 @@ def _set_out(db, config, spot_id, rng):
 def _local_back(db, config, spot_id, rng):
     db.update_session(local_back=True)
     undelivered = [c for c in db.cars_at(v.AT_TRAIN, v.LOCAL) if c.assigned_spot]
-    if not undelivered:
+    notes = []
+    if undelivered:
+        notes.append(f"Not delivered, back to the Locals track at the Local return job: "
+                     f"{v.both(c.label for c in undelivered)}.")
+    return notes + _skip_local_return_if_nothing(db, config)
+
+
+def _skip_local_return_if_nothing(db: Database, config: Config) -> list[str]:
+    """No cars to sort and none to send home: the Local return job is done already."""
+    if local_return(db, config):
         return []
-    return [f"Not delivered, back to the Locals track at the Local return job: "
-            f"{v.both(c.label for c in undelivered)}."]
+    _local_return(db, config, None, None)  # puts the local's engines away
+    return ["Nothing for the Local return job today."]
 
 
-# --- jobs B and C ----------------------------------------------------------------------
+# --- the Local return job and Switch eastbound -----------------------------------------
 
 
 def _local_return(db, config, spot_id, rng):
