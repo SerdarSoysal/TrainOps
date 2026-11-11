@@ -6,7 +6,8 @@ railroad starts again at day 1:
 - every car is put in the world its location names, with load "Not tracked"
   and that world as its origin
 - every engine is put in Storage or the world its location names
-- every spot is awaiting a car
+- every spot is awaiting a car (a random spot draws its first requirement)
+  and gets its day-early rolls
 - the yard is empty
 
 (Planning the first session's trains comes with train planning, step 7.)
@@ -14,6 +15,7 @@ railroad starts again at day 1:
 
 from __future__ import annotations
 
+import random
 from collections import Counter
 from pathlib import Path
 
@@ -21,6 +23,7 @@ from trainops import vocab as v
 from trainops.config import Config
 from trainops.db import Database
 from trainops.reconcile import create_spot_states
+from trainops.spots import roll_ahead
 from trainops.rosterfiles import (
     RosterFileError,
     engine_count_problems,
@@ -30,12 +33,18 @@ from trainops.rosterfiles import (
 
 
 def cold_start(
-    db: Database, config: Config, cars_path: str | Path, engines_path: str | Path
+    db: Database,
+    config: Config,
+    cars_path: str | Path,
+    engines_path: str | Path,
+    rng: random.Random | None = None,
 ) -> list[str]:
     """Clear everything and import the roster files. Returns plain-language notes.
 
     Raises RosterFileError (and changes nothing) if either file has problems.
+    `rng` is for repeatable tests; normally left out.
     """
+    rng = rng or random.Random()
     cars_path, engines_path = Path(cars_path), Path(engines_path)
     cars, problems = read_cars(cars_path)
     engines, engine_problems = read_engines(engines_path)
@@ -75,6 +84,9 @@ def cold_start(
                 loc_ref=engine.location,
             )
         create_spot_states(db, config)
+        for spot in config.spots:
+            state = db.spot_state(spot.spot_id)
+            db.put_spot_state(roll_ahead(spot, state, rng, config.settings))
 
     notes = [
         f"Cold start done: {len(cars)} cars ({per_world[v.EAST_STAGING]} in East staging, "
