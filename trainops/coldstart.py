@@ -9,7 +9,9 @@ railroad starts again at day 1:
 - every spot is awaiting a car (a random spot draws its first requirement)
   and gets its day-early rolls
 - the yard is empty
-- day 1's trains are planned (planning.plan_day)
+- the chore mode toggle starts at the configuration's chore_mode
+- day 1's trains are planned (planning.plan_day; no train order is known in
+  staging yet, so day 1's chores are full ones)
 """
 
 from __future__ import annotations
@@ -83,6 +85,7 @@ def cold_start(
                 loc_kind=v.AT_STORAGE if engine.location == v.STORAGE else v.AT_WORLD,
                 loc_ref=engine.location,
             )
+        db.update_session(next_chore_mode=config.settings.chore_mode)
         create_spot_states(db, config)
         for spot in config.spots:
             state = db.spot_state(spot.spot_id)

@@ -46,6 +46,13 @@ TRAINS = (WESTBOUND_MANIFEST, EASTBOUND_MANIFEST, LOCAL)
 
 STORAGE = "Storage"  # engines only
 
+# Chore modes (user, 2026-11-13). Full: rebuild each manifest in staging.
+# Quick: reuse the train that arrived there yesterday and swap only the rear
+# cars (West staging) or move only the Local block to the rear (East loop).
+CHORE_FULL = "Full"
+CHORE_QUICK = "Quick"
+CHORE_MODES = (CHORE_FULL, CHORE_QUICK)
+
 # Location kinds.
 AT_WORLD = "World"
 AT_YARD = "Yard"
@@ -109,30 +116,43 @@ def either(choices: Iterable[str]) -> str:
 # Signals (spec Section 13). Sources: web page buttons now, ESP32 nodes later.
 WEST_CHORE_DONE = "West chore done"
 EAST_CHORE_DONE = "East chore done"
+WESTBOUND_IN_YARD = "Westbound in yard"
 SWITCH_WESTBOUND_DONE = "Switch westbound done"
+WESTBOUND_IN_WEST_STAGING = "Westbound in West staging"
 PULL_DONE = "Pull done"  # per spot
 SET_OUT_DONE = "Set-out done"  # per spot
 LOCAL_BACK = "Local back in yard"
 LOCAL_RETURN_DONE = "Local return job done"
+EASTBOUND_IN_YARD = "Eastbound in yard"
 SWITCH_EASTBOUND_DONE = "Switch eastbound done"
+EASTBOUND_IN_EAST_STAGING = "Eastbound in East staging"
 SESSION_COMPLETE = "Session complete"
 SIGNALS = (
     WEST_CHORE_DONE,
     EAST_CHORE_DONE,
+    WESTBOUND_IN_YARD,
     SWITCH_WESTBOUND_DONE,
+    WESTBOUND_IN_WEST_STAGING,
     PULL_DONE,
     SET_OUT_DONE,
     LOCAL_BACK,
     LOCAL_RETURN_DONE,
+    EASTBOUND_IN_YARD,
     SWITCH_EASTBOUND_DONE,
+    EASTBOUND_IN_EAST_STAGING,
     SESSION_COMPLETE,
 )
 SPOT_SIGNALS = (PULL_DONE, SET_OUT_DONE)
 
-# The jobs of a session, in order (what the page shows as the current job).
+# The jobs of a session, in sequence order. After the chores several can be
+# under way at once (user, 2026-11-13); the page shows every open job.
 JOB_CHORES = "Pre-session chores"
+WESTBOUND_TO_YARD = "Westbound to yard"
 SWITCH_WESTBOUND = "Switch westbound"
+WESTBOUND_TO_WEST_STAGING = "Westbound to West staging"
 JOB_LOCAL = "Local"
 LOCAL_RETURN = "Local return job"
+EASTBOUND_TO_YARD = "Eastbound to yard"
 SWITCH_EASTBOUND = "Switch eastbound"
+EASTBOUND_TO_EAST_STAGING = "Eastbound to East staging"
 JOB_END = "Session complete"

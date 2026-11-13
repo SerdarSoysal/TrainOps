@@ -82,9 +82,14 @@ def test_buttons_follow_the_current_job(config, roster):
     handle(db, config, v.WEST_CHORE_DONE)
     assert [a.label for a in actions(db, config)] == [v.EAST_CHORE_DONE]
     handle(db, config, v.EAST_CHORE_DONE)
+    # The eastbound's button waits for the Local return job.
+    assert [a.signal for a in actions(db, config)] == [v.WESTBOUND_IN_YARD]
+    handle(db, config, v.WESTBOUND_IN_YARD)
     assert [a.signal for a in actions(db, config)] == [v.SWITCH_WESTBOUND_DONE]
     handle(db, config, v.SWITCH_WESTBOUND_DONE)
-    local = actions(db, config)
+    buttons = actions(db, config)
+    assert buttons[0].signal == v.WESTBOUND_IN_WEST_STAGING  # open alongside the local
+    local = buttons[1:]
     assert local[-1].signal == v.LOCAL_BACK
     for act in local[:-1]:
         assert act.signal == v.SET_OUT_DONE  # day 1: nothing to pull yet
@@ -143,3 +148,27 @@ def test_play_other_commands(config, roster):
     assert "Harbor Feed Mill, Unloading pit: Awaiting car" in text  # s
     assert "LOCAL RETURN JOB" in text  # l shows every list
     assert text.count("Type a number to send that signal") >= 3  # help after bad input
+
+
+@pytest.mark.parametrize("mode", ["Quick", "Mixed"])
+def test_quick_chores_keep_every_rule(config, roster, mode):
+    report = simulate(config, *roster, days=40, seed=2, skip_chance=0.2,
+                      bad_order_chance=0.1, chore_mode=mode)
+    assert report.broken is None
+    assert report.never_served == []
+    assert report.quick_chores[v.WEST_STAGING] > 0 and report.quick_chores[v.EAST_STAGING] > 0
+    if mode == "Quick":  # every day but day 1 (no train order known after a cold start)
+        assert report.quick_chores[v.WEST_STAGING] == 39
+
+
+def test_play_changes_the_chore_mode(config, roster):
+    db = Database.open(":memory:")
+    cold_start(db, config, *roster, rng=random.Random(3))
+    answers = iter(["c", "q"])
+    shown = []
+    play_loop(db, config, lambda prompt: next(answers), shown.append)
+    text = "\n".join(shown)
+    assert "Chores: full today; full from the next day advance (c = change)" in text
+    assert "Chores will be quick from the next day advance on" in text
+    assert db.session().next_chore_mode == v.CHORE_QUICK
+    assert db.session().west_chore_mode == v.CHORE_FULL  # today's chores stay as planned

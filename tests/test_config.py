@@ -4,6 +4,7 @@ import copy
 import textwrap
 
 import pytest
+import yaml
 
 from trainops import vocab
 from trainops.config import ConfigError, load_config, parse_config
@@ -531,3 +532,14 @@ def test_missing_file_is_refused(tmp_path):
     with pytest.raises(ConfigError) as info:
         load_config(tmp_path / "nope.yaml")
     assert info.value.problems[0].startswith("configuration file not found:")
+
+
+def test_chore_mode_setting(samples_dir):
+    data = yaml.safe_load((samples_dir / "config.yaml").read_text())
+    data["settings"]["chore_mode"] = "  QUICK "
+    assert parse_config(data).settings.chore_mode == "Quick"
+    del data["settings"]["chore_mode"]
+    assert parse_config(data).settings.chore_mode == "Full"
+    data["settings"]["chore_mode"] = "Simple"
+    with pytest.raises(ConfigError, match="'chore_mode' is 'Simple' — expected Full or Quick"):
+        parse_config(data)

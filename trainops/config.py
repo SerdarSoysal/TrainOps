@@ -34,6 +34,8 @@ from trainops.vocab import (
     REQUIREMENT_MODES,
     SIDES,
     SPOT_DIRECTIONS,
+    CHORE_FULL,
+    CHORE_MODES,
     either,
     match_word,
 )
@@ -101,6 +103,7 @@ class Settings:
     three_engines_from: int
     delay_chance_max: float  # caps every spot's delay_chance
     capacity: Capacity
+    chore_mode: str = "Full"  # Full | Quick; the default for the page's chore toggle
 
 
 @dataclass(frozen=True)
@@ -379,13 +382,18 @@ def _check_settings(ck: _Checker, raw: object) -> Settings | None:
         ck.problem(where, "must be a section of named values")
         return None
     start = len(ck.problems)
-    ck.unknown_fields(where, raw, (*DEFAULT_SETTINGS, "delay_chance_max", "capacity"))
+    ck.unknown_fields(where, raw, (*DEFAULT_SETTINGS, "delay_chance_max", "capacity",
+                                   "chore_mode"))
     values: dict[str, object] = {
         key: ck.whole(where, raw, key, minimum, default=default)
         for key, (default, minimum) in DEFAULT_SETTINGS.items()
     }
     values["delay_chance_max"] = ck.chance(
         where, raw, "delay_chance_max", default=DEFAULT_DELAY_CHANCE_MAX
+    )
+    values["chore_mode"] = (
+        ck.word(where, raw, "chore_mode", CHORE_MODES) if raw.get("chore_mode") is not None
+        else CHORE_FULL
     )
 
     cap_where = "Settings, capacity"

@@ -14,6 +14,7 @@ from trainops.worklists import (
     current_work,
     local_list,
     local_return_list,
+    main_line_list,
     spot_lines,
     spot_text,
     switch_list,
@@ -89,6 +90,7 @@ def test_switch_westbound_list(busy):
     db, config = busy
     send(db, config, v.WEST_CHORE_DONE)
     send(db, config, v.EAST_CHORE_DONE)
+    send(db, config, v.WESTBOUND_IN_YARD)
     block = [c for c in db.cars_at(v.AT_TRAIN, v.WESTBOUND_MANIFEST) if c.assigned_spot]
     track = db.cars_at(v.AT_YARD, v.WESTBOUND_TRACK)
     lines = switch_list(db, config, v.WESTBOUND_MANIFEST).splitlines()
@@ -105,7 +107,7 @@ def test_switch_westbound_list(busy):
     for car in block + track:
         assert car.label in text
     assert lines[-1].strip() == f"[ {v.SWITCH_WESTBOUND_DONE} ]"
-    assert current_work(db, config) == "\n".join(lines)
+    assert current_work(db, config).startswith("\n".join(lines) + "\n\n")
 
 
 def test_overload_is_shown_only_when_over_twenty(busy):
@@ -286,22 +288,85 @@ def test_spot_lines_cover_every_spot_by_name(busy):
     assert [l.split(":")[0] for l in lines] == [s.label for s in config.spots]
 
 
-# --- the current job -------------------------------------------------------------------
+# --- the manifests on the main line ----------------------------------------------------
 
 
-def test_current_work_follows_the_session(busy):
+def test_main_line_lists(busy):
+    db, config = busy
+    send(db, config, v.WEST_CHORE_DONE)
+    send(db, config, v.EAST_CHORE_DONE)
+    wb = len(db.cars_at(v.AT_TRAIN, v.WESTBOUND_MANIFEST))
+    wb_engines = len(db.engines_at(v.AT_TRAIN, v.WESTBOUND_MANIFEST))
+    lines = main_line_list(db, config, v.WESTBOUND_TO_YARD).splitlines()
+    assert lines[0] == "WESTBOUND MANIFEST — Westbound to yard"
+    assert lines[1] == (f"  From East staging to the main in the yard "
+                        f"({wb_engines} engines, {wb} cars)")
+    assert lines[-1].strip() == f"[ {v.WESTBOUND_IN_YARD} ]"
+    # The eastbound may leave West staging, but has no button until the Local return job.
+    text = main_line_list(db, config, v.EASTBOUND_TO_YARD)
+    assert "waits in a passing siding until the Local return job is done" in text
+    assert v.EASTBOUND_IN_YARD not in text
+    send(db, config, v.WESTBOUND_IN_YARD)
+    assert main_line_list(db, config, v.WESTBOUND_TO_YARD).endswith(DONE)
+    send(db, config, v.SWITCH_WESTBOUND_DONE)
+    assert "From the yard to West staging" in main_line_list(
+        db, config, v.WESTBOUND_TO_WEST_STAGING)
+    if not db.session().local_back:
+        send(db, config, v.LOCAL_BACK)
+    if not db.session().local_return_done:
+        send(db, config, v.LOCAL_RETURN_DONE)
+    text = main_line_list(db, config, v.EASTBOUND_TO_YARD)
+    assert text.splitlines()[-1].strip() == f"[ {v.EASTBOUND_IN_YARD} ]"
+
+
+def test_westbound_list_names_bad_order_cars_to_take_off(busy):
+    db, config = busy
+    to_the_local(db, config)
+    car = db.cars_at(v.AT_TRAIN, v.WESTBOUND_MANIFEST)[0]
+    with db.transaction():
+        db.update_car(car.id, bad_order=True)
+    text = main_line_list(db, config, v.WESTBOUND_TO_WEST_STAGING)
+    assert f"  Bad order, take off the layout in West staging: {car.label}." in text
+
+
+# --- the open jobs ---------------------------------------------------------------------
+
+
+def test_current_work_shows_every_open_job(busy):
     db, config = busy
     assert current_work(db, config).startswith("WEST STAGING — Eastbound manifest")
     send(db, config, v.WEST_CHORE_DONE)
     assert f"WEST STAGING — Eastbound manifest\n  {DONE}" in current_work(db, config)
     send(db, config, v.EAST_CHORE_DONE)
+    titles = [part.splitlines()[0] for part in current_work(db, config).split("\n\n")]
+    assert titles == ["WESTBOUND MANIFEST — Westbound to yard",
+                      "EASTBOUND MANIFEST — Eastbound to yard"]
+    send(db, config, v.WESTBOUND_IN_YARD)
     assert current_work(db, config).startswith("WESTBOUND MANIFEST — Switch westbound")
     send(db, config, v.SWITCH_WESTBOUND_DONE)
+    work = current_work(db, config)
+    assert work.startswith("WESTBOUND MANIFEST — Westbound to West staging")
+    assert "\n\nLOCAL — day " in work
+    send(db, config, v.WESTBOUND_IN_WEST_STAGING)
     assert current_work(db, config).startswith("LOCAL — day ")
     send(db, config, v.LOCAL_BACK)
     if not db.session().local_return_done:
         assert current_work(db, config).startswith("LOCAL RETURN JOB")
         send(db, config, v.LOCAL_RETURN_DONE)
+    assert current_work(db, config).startswith("EASTBOUND MANIFEST — Eastbound to yard")
+    send(db, config, v.EASTBOUND_IN_YARD)
     assert current_work(db, config).startswith("EASTBOUND MANIFEST — Switch eastbound")
     send(db, config, v.SWITCH_EASTBOUND_DONE)
+    assert current_work(db, config).startswith("EASTBOUND MANIFEST — Eastbound to East staging")
+    send(db, config, v.EASTBOUND_IN_EAST_STAGING)
     assert current_work(db, config).splitlines()[-1].strip() == f"[ {v.SESSION_COMPLETE} ]"
+
+
+def test_local_list_says_which_engines_to_pick_up(busy):
+    db, config = busy
+    engines = [db.engine(e.engine_id) for e in db.consist_plan(v.LOCAL) if e.engine_id]
+    assert len(engines) == 2
+    to_the_local(db, config)
+    lines = local_list(db, config).splitlines()
+    assert lines[1] == (f"  Pick up engines {engines[0].label} and {engines[1].label} "
+                        f"from storage.")

@@ -32,6 +32,21 @@ Trains:
   leaving West staging), raised to the minimum (Local block + East-supply
   cars), lowered to what West staging holds; continuing cars in random
   order (East-supply cars + random filler), Local block at the rear.
+- Quick chores (user, 2026-11-13; the mode is the session's next_chore_mode,
+  set from config chore_mode and the page's toggle): each manifest reuses
+  the train that arrived in its staging the day before, in that order.
+  Westbound: the Eastbound manifest as it reached the East loop, Local block
+  moved to the rear; nothing added or removed. Eastbound: yesterday's
+  Westbound manifest the other way round (head -> rear = its rear -> head);
+  length kept, but brought within eastbound_length_min..max (and raised to
+  the minimum); cars not needed come off the rear (West end), spare cars
+  needed (East supply, then filler) go on the rear, Local block last. Local
+  block and East-supply cars come from yesterday's train when one fits, so
+  no car comes off only for one like it to go on (user, 2026-11-13): the
+  Local block takes the rearmost fitting car, East supply the frontmost;
+  otherwise a spare chosen at random. A Local block car from the middle of
+  the train is sorted to the rear. Engines follow the regular rules. With no train order known
+  (after a cold start) that world gets a full chore, with a note.
 - Local: today's set-outs (Locals-track cars + the Westbound Local block).
 - Engines: manifest 2, or 3 when the longer of arriving and departing
   lengths reaches three_engines_from (or the train is overloaded); chosen at
@@ -116,6 +131,8 @@ class DayPlan:
     going_home: tuple[int, ...] = ()  # cars the Local return job takes off the Locals track today
     local_has_work: bool = False
     notes: tuple[str, ...] = ()
+    west_chore_mode: str = v.CHORE_FULL  # how the Eastbound manifest is made up in West staging
+    east_chore_mode: str = v.CHORE_FULL  # how the Westbound manifest is made up in the East loop
 
     def train(self, name: str) -> TrainPlan:
         return {v.WESTBOUND_MANIFEST: self.westbound, v.EASTBOUND_MANIFEST: self.eastbound,
@@ -127,8 +144,10 @@ class DayPlan:
 
 def plan_day(db: Database, config: Config, rng: random.Random) -> DayPlan:
     """Plan today's trains from the database and save the plan. Inside a transaction."""
+    session = db.session()
     plan = make_plan(
-        config, db.session().day, db.spot_states(), db.cars(), db.engines(), rng
+        config, session.day, db.spot_states(), db.cars(), db.engines(), rng,
+        chore_mode=session.next_chore_mode,
     )
     apply_plan(db, plan)
     return plan
@@ -150,7 +169,9 @@ def apply_plan(db: Database, plan: DayPlan) -> None:
         db.set_consist_plan(
             train.train, engine_ids=list(train.engine_ids), car_ids=list(train.car_ids)
         )
-    db.update_session(local_has_work=plan.local_has_work)
+    db.update_session(local_has_work=plan.local_has_work,
+                      west_chore_mode=plan.west_chore_mode,
+                      east_chore_mode=plan.east_chore_mode)
 
 
 # --- the plan --------------------------------------------------------------------------
@@ -163,8 +184,9 @@ def make_plan(
     cars: Iterable[Car],
     engines: Iterable[Engine],
     rng: random.Random,
+    chore_mode: str = v.CHORE_FULL,
 ) -> DayPlan:
-    return _Planner(config, day, states, list(cars), list(engines), rng).plan()
+    return _Planner(config, day, states, list(cars), list(engines), rng, chore_mode).plan()
 
 
 def outgoing_types(config: Config) -> list[str]:
@@ -187,8 +209,10 @@ def engines_needed(arriving: int, departing: int, settings) -> int:
 
 
 class _Planner:
-    def __init__(self, config, day, states, cars, engines, rng):
+    def __init__(self, config, day, states, cars, engines, rng, chore_mode=v.CHORE_FULL):
         self.config = config
+        self.chore_mode = chore_mode
+        self.west_mode = self.east_mode = v.CHORE_FULL
         self.settings = config.settings
         self.day = day
         self.states = states
@@ -214,6 +238,8 @@ class _Planner:
 
         tomorrow = for_tomorrow(self.config, self.states, self.day, served, self.bad_order_spots)
         eb_pickup_all, wb_track_after = self._predict_pulls()
+        self.west_quick = self._quick(v.WEST_STAGING)
+        self.west_order = west_train(self.cars) if self.west_quick else []
         tomorrow_supply, eb_block, east_supply = self._meet_tomorrow(tomorrow, eb_pickup_all)
 
         westbound, wb_pickup = self._westbound(wb_block)
@@ -248,6 +274,8 @@ class _Planner:
             going_home=tuple(c.id for c in self.going_home),
             local_has_work=local_has_work,
             notes=tuple(self.notes),
+            west_chore_mode=self.west_mode,
+            east_chore_mode=self.east_mode,
         )
 
     # ---- the Locals track ----
@@ -379,7 +407,7 @@ class _Planner:
                 car = _take(held, lambda c: v.same_words(c.type, demand.car_type))
                 source = HELD_EMPTY_TOMORROW
             if car is None and demand.side == v.WEST:
-                car = self._take_random(self.west_left, demand)
+                car = self._take_west(demand, rearmost=True)
                 source = EASTBOUND_BLOCK
                 if car is not None:
                     block.append(car)
@@ -388,7 +416,7 @@ class _Planner:
                 car = _take(pickup, lambda c: self._fits(c, demand))
                 source = EASTBOUND_PICKUP
                 if car is None:
-                    car = self._take_random(self.west_left, demand)
+                    car = self._take_west(demand, rearmost=False)
                     source = EAST_SUPPLY
                     if car is not None:
                         east_supply.append(car)
@@ -404,7 +432,10 @@ class _Planner:
 
     def _westbound(self, block: list[Car]):
         continuing = [c for c in self.east_loop if c not in block]
-        self.rng.shuffle(continuing)
+        if self._quick(v.EAST_STAGING):
+            self.east_mode = v.CHORE_QUICK  # as the eastbound arrived; Local block to the rear
+        else:
+            self.rng.shuffle(continuing)
         cars = continuing + block
         arriving = len(cars)
         track = self._at(v.AT_YARD, v.WESTBOUND_TRACK)  # oldest first
@@ -426,14 +457,22 @@ class _Planner:
 
     def _eastbound(self, block: list[Car], east_supply: list[Car], pickup_all: list[Car]):
         s = self.settings
-        draw = self.rng.randint(s.eastbound_length_min, s.eastbound_length_max)
         minimum = len(block) + len(east_supply)
-        length = min(max(draw, minimum), len(self.west_pool), s.capacity.east_staging)
-        filler_count = max(0, length - minimum)
-        filler = self.rng.sample(self.west_left, min(filler_count, len(self.west_left)))
-        continuing = east_supply + filler
-        self.rng.shuffle(continuing)
-        cars = continuing + block
+        if self.west_quick:
+            self.west_mode = v.CHORE_QUICK
+            train = self.west_order
+            draw = len(train)  # yesterday's westbound
+            kept = min(max(draw, s.eastbound_length_min), s.eastbound_length_max)
+            length = min(max(kept, minimum), len(self.west_pool), s.capacity.east_staging)
+            cars = self._swap_rear(train, block, east_supply, length)
+        else:
+            draw = self.rng.randint(s.eastbound_length_min, s.eastbound_length_max)
+            length = min(max(draw, minimum), len(self.west_pool), s.capacity.east_staging)
+            filler_count = max(0, length - minimum)
+            filler = self.rng.sample(self.west_left, min(filler_count, len(self.west_left)))
+            continuing = east_supply + filler
+            self.rng.shuffle(continuing)
+            cars = continuing + block
         if minimum > s.capacity.east_staging:
             self.notes.append(
                 f"The Eastbound manifest needs {minimum} cars for the local and the East, "
@@ -455,6 +494,38 @@ class _Planner:
             max(arriving, departing) > s.train_nominal_max,
         )
         return plan, draw, minimum, pickup
+
+    def _quick(self, world: str) -> bool:
+        """A quick chore in this world: asked for, and yesterday's train order is known."""
+        if self.chore_mode != v.CHORE_QUICK:
+            return False
+        if world == v.EAST_STAGING:
+            known = bool(self.east_loop) and all(c.seq is not None for c in self.east_loop)
+        else:
+            known = bool(west_train(self.cars))
+        if not known:
+            where = "the East loop" if world == v.EAST_STAGING else "West staging"
+            self.notes.append(f"Quick chore not possible in {where} today: no train order "
+                              f"is known there yet, so it gets a full chore.")
+        return known
+
+    def _swap_rear(self, train: list[Car], block: list[Car], east_supply: list[Car],
+                   length: int) -> list[Car]:
+        """Yesterday's westbound reused: rear cars off, spares and the Local block on."""
+        in_train = {c.id for c in train}
+        chosen = {c.id for c in block}
+        supply = {c.id for c in east_supply}
+        body = [c for c in train if c.id not in chosen]
+        added = [c for c in east_supply if c.id not in in_train]
+        keep = length - len(block) - len(added)
+        i = len(body) - 1
+        while len(body) > keep and i >= 0:  # off the rear, keeping East-supply cars
+            if body[i].id not in supply:
+                del body[i]
+            i -= 1
+        spares = [c for c in self.west_left if c.id not in in_train]
+        filler = self.rng.sample(spares, min(max(0, keep - len(body)), len(spares)))
+        return body + added + filler + block
 
     def _manifest_engines(self, westbound: TrainPlan, eastbound: TrainPlan):
         manifest = [e for e in self.engines if e.pool == v.POOL_MANIFEST]
@@ -502,6 +573,23 @@ class _Planner:
         """An assigned car on Locals is the one for this demand: type and load."""
         return v.same_words(car.type, demand.car_type) and car.load == demand.load
 
+    def _take_west(self, demand: Demand, rearmost: bool) -> Car | None:
+        """A West staging car for tomorrow's demand.
+
+        Quick chore: a fitting car already in yesterday's train first, so no
+        car comes off only for one like it to go on. The Local block takes
+        the rearmost (it ends at the rear anyway), East supply the frontmost
+        (it rides anywhere; the rear cars stay free for the Local block).
+        Otherwise, and in a full chore, a fitting car chosen at random.
+        """
+        left = {c.id for c in self.west_left}
+        fitting = [c for c in self.west_order if c.id in left and self._fits(c, demand)]
+        if fitting:
+            car = fitting[-1] if rearmost else fitting[0]
+            self.west_left.remove(car)
+            return car
+        return self._take_random(self.west_left, demand)
+
     def _take_random(self, pool: list[Car], demand: Demand) -> Car | None:
         fitting = [c for c in pool if self._fits(c, demand)]
         if not fitting:
@@ -513,6 +601,17 @@ class _Planner:
     def _label(self, spot_id: str) -> str:
         spot: Spot | None = self.config.spots_by_id.get(spot_id)
         return spot.label if spot else spot_id
+
+
+def west_train(cars: Iterable[Car]) -> list[Car]:
+    """Yesterday's westbound as it stands in West staging, as an eastbound: head -> rear.
+
+    West staging cars keep their place in the train that last arrived there
+    (seq); spare cars have none. Bad order cars have left the roster.
+    """
+    train = [c for c in cars if c.loc_kind == v.AT_WORLD and c.loc_ref == v.WEST_STAGING
+             and c.seq is not None and not c.bad_order]
+    return sorted(train, key=lambda c: c.seq, reverse=True)
 
 
 def _take(pool: list[Car], test) -> Car | None:

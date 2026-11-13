@@ -3,12 +3,13 @@
 Everything is worked out from the records when asked for, so a list always
 matches what the signals have done so far:
 
-- chore_sheet(world): the pre-session chore sheet for one world
+- chore_sheet(world): the pre-session chore sheet for one world (full or quick)
 - switch_list(train): Switch westbound or Switch eastbound
 - local_list(): the local's moves by industry
 - local_return_list(): sorting the local's cars (once the local is back)
+- main_line_list(job): a manifest between staging and the yard
 - spot_lines(): one plain-language line per spot (web page now, LCDs later)
-- current_work(): the list for the job the session is waiting on
+- current_work(): the lists for every job under way now
 
 The order of cars inside a Local block or on the local is never given, and a
 yard job is one list of moves grouped by from -> to ("Move 3 cars from the
@@ -25,7 +26,8 @@ from trainops import spots
 from trainops import vocab as v
 from trainops.config import Config, Spot
 from trainops.db import Car, Database, Engine
-from trainops.signals import current_job
+from trainops.planning import west_train
+from trainops.signals import accepts, open_jobs
 from trainops.yardwork import local_return, switch_eastbound, switch_westbound, train_cars
 
 NONE = "none"
@@ -67,7 +69,15 @@ def chore_sheet(db: Database, config: Config, world: str) -> str:
         title,
         f"1. Engines from storage → staging:  {_engine_names(to_staging)}",
         f"2. Engines from staging → storage:  {_engine_names(to_storage)}",
-        "3. Train list",
+    ]
+    session = db.session()
+    quick = (session.west_chore_mode if world == v.WEST_STAGING
+             else session.east_chore_mode) == v.CHORE_QUICK
+    if quick:
+        lines[0] += "  (Quick chore)"
+        lines += _quick_moves(db, world, cars)
+    lines += [
+        f"{len(lines)}. Train list",
         f"   Engines (lead first):  {_engine_names(engines)}",
         "   Cars (head → rear):" + ("" if cars else f"  {NONE}"),
     ]
@@ -86,6 +96,36 @@ def chore_sheet(db: Database, config: Config, world: str) -> str:
 
 def _engine_names(engines: list[Engine]) -> str:
     return ", ".join(e.label for e in engines) or NONE
+
+
+def _quick_moves(db: Database, world: str, cars: list[Car]) -> list[str]:
+    """A quick chore's car moves: the train that arrived yesterday, changed at the rear.
+
+    West staging: cars off the train, spare cars onto it, Local block cars
+    moved to the rear. The East loop only moves Local block cars to the rear.
+    """
+    if world == v.WEST_STAGING:
+        train = west_train(db.cars())  # the other way round: head -> rear for the eastbound
+    else:
+        train = [c for c in db.cars_at(v.AT_WORLD, world) if c.seq is not None]
+    planned = {c.id for c in cars}
+    in_train = {c.id for c in train}
+    kept = [c for c in train if c.id in planned]
+    moved = [c for i, c in enumerate(kept)
+             if c.assigned_spot and any(not k.assigned_spot for k in kept[i + 1:])]
+    lines = []
+    if world == v.WEST_STAGING:
+        off = [c for c in train if c.id not in planned]
+        on = [c for c in cars if c.id not in in_train]
+        lines.append(f"3. Cars off the train → spare tracks:  {_car_names(off)}")
+        lines.append(f"4. Cars from the spare tracks → train:  {_car_names(on)}")
+    lines.append(f"{len(lines) + 3}. Cars moved to the rear of the train (Local block):  "
+                 f"{_car_names(moved)}")
+    return lines
+
+
+def _car_names(cars: list[Car]) -> str:
+    return ", ".join(f"{c.label} {c.type}" for c in cars) or NONE
 
 
 # --- Switch westbound and Switch eastbound ----------------------------------------------
@@ -167,6 +207,10 @@ def local_list(db: Database, config: Config) -> str:
     pulls, pending, spotted = work.pulls, work.pending, work.spotted
 
     lines = [title]
+    engines = [db.engine(e.engine_id) for e in db.consist_plan(v.LOCAL)
+               if e.engine_id is not None]
+    if engines:
+        lines.append(f"  Pick up engines {v.both(e.label for e in engines)} from storage.")
     for industry in config.industries:
         rows = []
         for spot in industry.spots:
@@ -187,7 +231,7 @@ def local_list(db: Database, config: Config) -> str:
         if rows:
             lines.append(industry.name.upper())
             lines += _columns(rows, indent=2)
-    if len(lines) == 1:
+    if len(lines) == 1 + bool(engines):
         lines.append("  No work for the local today.")
 
     pulled = [m for m in local_return(db, config)
@@ -254,6 +298,44 @@ def local_return_list(db: Database, config: Config) -> str:
     lines.append(button(v.LOCAL_RETURN_DONE))
     return "\n".join(lines)
 
+
+
+# --- the manifests on the main line ---------------------------------------------------
+
+# job -> (train, session flag, signal, where it goes)
+_MAIN_LINE = {
+    v.WESTBOUND_TO_YARD: (v.WESTBOUND_MANIFEST, "westbound_in_yard", v.WESTBOUND_IN_YARD,
+                          "From East staging to the main in the yard"),
+    v.WESTBOUND_TO_WEST_STAGING: (v.WESTBOUND_MANIFEST, "westbound_in_west_staging",
+                                  v.WESTBOUND_IN_WEST_STAGING, "From the yard to West staging"),
+    v.EASTBOUND_TO_YARD: (v.EASTBOUND_MANIFEST, "eastbound_in_yard", v.EASTBOUND_IN_YARD,
+                          "From West staging to the main in the yard"),
+    v.EASTBOUND_TO_EAST_STAGING: (v.EASTBOUND_MANIFEST, "eastbound_in_east_staging",
+                                  v.EASTBOUND_IN_EAST_STAGING, "From the yard to East staging"),
+}
+
+
+def main_line_list(db: Database, config: Config, job: str) -> str:
+    """A manifest moving between its staging and the yard."""
+    train, flag, signal, route = _MAIN_LINE[job]
+    session = db.session()
+    title = f"{train.upper()} — {job}"
+    if getattr(session, flag):
+        return f"{title}\n  {DONE}"
+    cars = db.cars_at(v.AT_TRAIN, train)
+    engines = db.engines_at(v.AT_TRAIN, train)
+    lines = [title, f"  {route} ({len(engines)} {'engine' if len(engines) == 1 else 'engines'}, "
+                    f"{len(cars)} {_cars(len(cars))})"]
+    if job == v.WESTBOUND_TO_WEST_STAGING:
+        bad = [c.label for c in cars if c.bad_order]
+        if bad:
+            lines.append(f"  Bad order, take off the layout in West staging: {v.both(bad)}.")
+    if accepts(session, signal):
+        lines.append(button(signal))
+    else:
+        lines.append("  May leave West staging now, but waits in a passing siding until "
+                     "the Local return job is done.")
+    return "\n".join(lines)
 
 
 # --- spots -----------------------------------------------------------------------------
@@ -331,46 +413,67 @@ class Action:
 
 
 def actions(db: Database, config: Config) -> list[Action]:
-    """The signals the current job accepts now (the page's buttons).
+    """The signals the open jobs accept now (the page's buttons), in sequence order.
 
     The local's set-out at a spot appears once that spot's pull is done.
     """
     session = db.session()
-    job = current_job(session)
-    if job == v.JOB_CHORES:
-        return [Action(signal, signal) for signal, done in (
-            (v.WEST_CHORE_DONE, session.west_chore_done),
-            (v.EAST_CHORE_DONE, session.east_chore_done)) if not done]
-    if job == v.JOB_LOCAL:
-        work = local_work(db)
-        occupied = {c.loc_ref for c in db.cars() if c.loc_kind == v.AT_SPOT}
-        found = []
-        for spot in config.spots:
-            sid = spot.spot_id
-            if sid in work.pulls:
-                car = work.pulls[sid]
-                found.append(Action(f"Pull {car.label} ← {spot.label}", v.PULL_DONE, sid))
-            if sid in work.pending and sid not in occupied:
-                car = work.pending[sid]
-                found.append(Action(f"Spot {car.label} → {spot.label}", v.SET_OUT_DONE, sid))
-        return found + [Action(v.LOCAL_BACK, v.LOCAL_BACK)]
-    signal = {
-        v.SWITCH_WESTBOUND: v.SWITCH_WESTBOUND_DONE,
-        v.LOCAL_RETURN: v.LOCAL_RETURN_DONE,
-        v.SWITCH_EASTBOUND: v.SWITCH_EASTBOUND_DONE,
-        v.JOB_END: v.SESSION_COMPLETE,
-    }[job]
-    return [Action(signal, signal)]
+    found = []
+    for job in open_jobs(session):
+        if job == v.JOB_CHORES:
+            found += [Action(signal, signal) for signal, done in (
+                (v.WEST_CHORE_DONE, session.west_chore_done),
+                (v.EAST_CHORE_DONE, session.east_chore_done)) if not done]
+        elif job == v.JOB_LOCAL:
+            found += _local_actions(db, config)
+        else:
+            signal = _JOB_SIGNAL[job]
+            if accepts(session, signal):
+                found.append(Action(signal, signal))
+    return found
 
 
-# --- the current job -------------------------------------------------------------------
+_JOB_SIGNAL = {
+    v.WESTBOUND_TO_YARD: v.WESTBOUND_IN_YARD,
+    v.SWITCH_WESTBOUND: v.SWITCH_WESTBOUND_DONE,
+    v.WESTBOUND_TO_WEST_STAGING: v.WESTBOUND_IN_WEST_STAGING,
+    v.LOCAL_RETURN: v.LOCAL_RETURN_DONE,
+    v.EASTBOUND_TO_YARD: v.EASTBOUND_IN_YARD,
+    v.SWITCH_EASTBOUND: v.SWITCH_EASTBOUND_DONE,
+    v.EASTBOUND_TO_EAST_STAGING: v.EASTBOUND_IN_EAST_STAGING,
+    v.JOB_END: v.SESSION_COMPLETE,
+}
+
+
+def _local_actions(db: Database, config: Config) -> list[Action]:
+    work = local_work(db)
+    occupied = {c.loc_ref for c in db.cars() if c.loc_kind == v.AT_SPOT}
+    found = []
+    for spot in config.spots:
+        sid = spot.spot_id
+        if sid in work.pulls:
+            car = work.pulls[sid]
+            found.append(Action(f"Pull {car.label} ← {spot.label}", v.PULL_DONE, sid))
+        if sid in work.pending and sid not in occupied:
+            car = work.pending[sid]
+            found.append(Action(f"Spot {car.label} → {spot.label}", v.SET_OUT_DONE, sid))
+    return found + [Action(v.LOCAL_BACK, v.LOCAL_BACK)]
+
+
+# --- the open jobs ---------------------------------------------------------------------
 
 
 def current_work(db: Database, config: Config) -> str:
-    """The list for the job the session is waiting on."""
-    job = current_job(db.session())
+    """The lists for every job under way now, in sequence order."""
+    return "\n\n".join(job_list(db, config, job) for job in open_jobs(db.session()))
+
+
+def job_list(db: Database, config: Config, job: str) -> str:
+    """The list for one job."""
     if job == v.JOB_CHORES:
         return "\n\n".join(chore_sheet(db, config, w) for w in (v.WEST_STAGING, v.EAST_STAGING))
+    if job in _MAIN_LINE:
+        return main_line_list(db, config, job)
     if job == v.SWITCH_WESTBOUND:
         return switch_list(db, config, v.WESTBOUND_MANIFEST)
     if job == v.JOB_LOCAL:

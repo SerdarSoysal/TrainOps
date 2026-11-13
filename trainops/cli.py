@@ -20,7 +20,7 @@ from trainops.config import ConfigError, load_config
 from trainops.db import Database, DatabaseError
 from trainops.reconcile import ColdStartNeeded, check_config
 from trainops.rosterfiles import RosterFileError
-from trainops.signals import SignalRefused, current_job, handle
+from trainops.signals import SignalRefused, handle, open_jobs, set_chore_mode
 from trainops.simulate import format_report, simulate
 from trainops.worklists import (
     actions,
@@ -28,6 +28,7 @@ from trainops.worklists import (
     current_work,
     local_list,
     local_return_list,
+    main_line_list,
     spot_lines,
     switch_list,
 )
@@ -48,6 +49,9 @@ def main(argv: list[str] | None = None) -> int:
                      help="chance the local skips each move, 0 to 1 (default 0)")
     sim.add_argument("--bad-order-chance", type=float, default=0.0,
                      help="chance per day that a car at a spot is retired as Bad order")
+    sim.add_argument("--chore-mode", choices=["full", "quick", "mixed"], type=str.lower,
+                     default=None, help="chores: full, quick, or mixed (changed at random "
+                     "each day); default: the configuration's chore_mode")
 
     play = commands.add_parser("play", help="run sessions by hand, one signal at a time")
     _roster_options(play)
@@ -89,14 +93,15 @@ def _utf8_output() -> None:
 
 def _simulate(args, config) -> int:
     report = simulate(config, args.cars, args.engines, args.days, args.seed,
-                      args.skip_chance, args.bad_order_chance)
+                      args.skip_chance, args.bad_order_chance, args.chore_mode)
     print(format_report(report, config))
     return 1 if report.broken or report.never_served else 0
 
 
 # --- play ------------------------------------------------------------------------------
 
-HELP = "Type a number to send that signal; s = spots, l = all lists, q = quit."
+HELP = ("Type a number to send that signal; s = spots, l = all lists, "
+        "c = change chore mode, q = quit.")
 
 
 def _play(args, config) -> int:
@@ -121,7 +126,7 @@ def _play(args, config) -> int:
 
 def play_loop(db: Database, config, read: Callable[[str], str], write: Callable[[str], None],
               rng: random.Random | None = None) -> None:
-    """Show the current job and its buttons; send the signal typed. Ends on q or end of input."""
+    """Show the open jobs and their buttons; send the signal typed. Ends on q or end of input."""
     rng = rng or random.Random()
     show = True
     while True:
@@ -129,7 +134,8 @@ def play_loop(db: Database, config, read: Callable[[str], str], write: Callable[
         buttons = actions(db, config)
         if show:
             write("")
-            write(f"=== Day {session.day} — {current_job(session)} ===")
+            write(f"=== Day {session.day} — {', '.join(open_jobs(session))} ===")
+            write(chore_mode_line(session))
             write(current_work(db, config))
             write("")
             for number, act in enumerate(buttons, 1):
@@ -148,6 +154,11 @@ def play_loop(db: Database, config, read: Callable[[str], str], write: Callable[
         elif answer == "l":
             write(_all_lists(db, config))
             show = False
+        elif answer == "c":
+            other = v.CHORE_QUICK if session.next_chore_mode == v.CHORE_FULL else v.CHORE_FULL
+            for note in set_chore_mode(db, other):
+                write(note)
+            show = False
         elif answer.isdigit() and 1 <= int(answer) <= len(buttons):
             act = buttons[int(answer) - 1]
             try:
@@ -160,14 +171,27 @@ def play_loop(db: Database, config, read: Callable[[str], str], write: Callable[
             show = False
 
 
+def chore_mode_line(session) -> str:
+    """Today's chore modes and the toggle's setting for the next day advance."""
+    west, east = session.west_chore_mode, session.east_chore_mode
+    today = west.lower() if west == east else \
+        f"{west.lower()} in West staging, {east.lower()} in the East loop"
+    return (f"Chores: {today} today; {session.next_chore_mode.lower()} from the next "
+            f"day advance (c = change)")
+
+
 def _all_lists(db: Database, config) -> str:
     parts = [
         chore_sheet(db, config, v.WEST_STAGING),
         chore_sheet(db, config, v.EAST_STAGING),
+        main_line_list(db, config, v.WESTBOUND_TO_YARD),
         switch_list(db, config, v.WESTBOUND_MANIFEST),
+        main_line_list(db, config, v.WESTBOUND_TO_WEST_STAGING),
         local_list(db, config),
         local_return_list(db, config),
+        main_line_list(db, config, v.EASTBOUND_TO_YARD),
         switch_list(db, config, v.EASTBOUND_MANIFEST),
+        main_line_list(db, config, v.EASTBOUND_TO_EAST_STAGING),
     ]
     return "\n\n".join(parts)
 

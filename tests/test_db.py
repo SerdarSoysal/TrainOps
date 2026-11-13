@@ -182,7 +182,6 @@ def test_cars_at_a_place_come_in_order(db):
     [
         dict(loc_kind=v.AT_WORLD, loc_ref="Chicago"),  # not a world
         dict(loc_kind=v.AT_YARD, loc_ref=v.LOCALS_TRACK),  # yard needs an order number
-        dict(loc_kind=v.AT_WORLD, loc_ref=v.EAST_STAGING, seq=1),  # world has no order
         dict(loc_kind=v.AT_STORAGE, loc_ref=v.STORAGE),  # storage is for engines
         dict(loc_kind=v.AT_TRAIN, loc_ref="Through freight", seq=1),  # not a train
         dict(load="half full"),
@@ -368,3 +367,20 @@ def test_planned_car_cannot_be_removed_until_plan_is_cleared(db):
         db.set_consist_plan(v.LOCAL, engine_ids=[], car_ids=[car.id])
     with db.transaction(), pytest.raises(sqlite3.IntegrityError):
         db.remove_car(car.id)
+
+
+def test_world_cars_may_keep_their_place_in_the_last_train(db):
+    with db.transaction():
+        car = add_boxcar(db, loc_kind=v.AT_WORLD, loc_ref=v.WEST_STAGING, seq=3)
+    assert db.car(car.id).seq == 3  # for a quick chore tomorrow
+
+
+def test_chore_modes_are_plain_words(db):
+    session = db.session()
+    assert (session.next_chore_mode, session.west_chore_mode, session.east_chore_mode) == (
+        v.CHORE_FULL, v.CHORE_FULL, v.CHORE_FULL)
+    with db.transaction():
+        db.update_session(next_chore_mode=v.CHORE_QUICK)
+    assert db.session().next_chore_mode == v.CHORE_QUICK
+    with db.transaction(), pytest.raises(sqlite3.IntegrityError):
+        db.update_session(next_chore_mode="Q")

@@ -43,6 +43,7 @@ def test_config_loads_with_default_settings(samples_dir):
         "train_nominal_max": 20,
         "three_engines_from": 16,
         "delay_chance_max": 1,
+        "chore_mode": "Full",
         "capacity": {"east_staging": 30, "west_staging": 70, "yard_track": 35},
     }
 

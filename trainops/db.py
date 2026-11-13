@@ -21,7 +21,8 @@ from pathlib import Path
 
 from trainops import vocab as v
 
-SCHEMA_VERSION = 2  # 2: session columns renamed to the switcher job names
+SCHEMA_VERSION = 3  # 2: session columns renamed to the switcher job names; 3: manifest arrival
+# flags, chore modes, train order kept in staging
 
 
 def _sql_list(values: tuple[str, ...]) -> str:
@@ -33,15 +34,27 @@ _WORLDS = _sql_list(v.WORLDS)
 
 SCHEMA = f"""
 CREATE TABLE session (
-    id                INTEGER PRIMARY KEY CHECK (id = 1),
-    day               INTEGER NOT NULL CHECK (day >= 1),
-    west_chore_done   INTEGER NOT NULL DEFAULT 0 CHECK (west_chore_done IN (0, 1)),
-    east_chore_done   INTEGER NOT NULL DEFAULT 0 CHECK (east_chore_done IN (0, 1)),
-    switch_westbound_done        INTEGER NOT NULL DEFAULT 0 CHECK (switch_westbound_done IN (0, 1)),
-    local_back        INTEGER NOT NULL DEFAULT 0 CHECK (local_back IN (0, 1)),
-    local_return_done        INTEGER NOT NULL DEFAULT 0 CHECK (local_return_done IN (0, 1)),
-    switch_eastbound_done        INTEGER NOT NULL DEFAULT 0 CHECK (switch_eastbound_done IN (0, 1)),
-    local_has_work    INTEGER NOT NULL DEFAULT 0 CHECK (local_has_work IN (0, 1))
+    id                         INTEGER PRIMARY KEY CHECK (id = 1),
+    day                        INTEGER NOT NULL CHECK (day >= 1),
+    west_chore_done            INTEGER NOT NULL DEFAULT 0 CHECK (west_chore_done IN (0, 1)),
+    east_chore_done            INTEGER NOT NULL DEFAULT 0 CHECK (east_chore_done IN (0, 1)),
+    westbound_in_yard          INTEGER NOT NULL DEFAULT 0 CHECK (westbound_in_yard IN (0, 1)),
+    switch_westbound_done      INTEGER NOT NULL DEFAULT 0 CHECK (switch_westbound_done IN (0, 1)),
+    westbound_in_west_staging  INTEGER NOT NULL DEFAULT 0 CHECK (westbound_in_west_staging IN (0, 1)),
+    local_back                 INTEGER NOT NULL DEFAULT 0 CHECK (local_back IN (0, 1)),
+    local_return_done          INTEGER NOT NULL DEFAULT 0 CHECK (local_return_done IN (0, 1)),
+    eastbound_in_yard          INTEGER NOT NULL DEFAULT 0 CHECK (eastbound_in_yard IN (0, 1)),
+    switch_eastbound_done      INTEGER NOT NULL DEFAULT 0 CHECK (switch_eastbound_done IN (0, 1)),
+    eastbound_in_east_staging  INTEGER NOT NULL DEFAULT 0 CHECK (eastbound_in_east_staging IN (0, 1)),
+    local_has_work             INTEGER NOT NULL DEFAULT 0 CHECK (local_has_work IN (0, 1)),
+    -- chore mode for the plan made at the next day advance (the page's toggle)
+    next_chore_mode            TEXT NOT NULL DEFAULT '{v.CHORE_FULL}'
+                               CHECK (next_chore_mode IN ({_sql_list(v.CHORE_MODES)})),
+    -- chore mode today's plan uses in each world
+    west_chore_mode            TEXT NOT NULL DEFAULT '{v.CHORE_FULL}'
+                               CHECK (west_chore_mode IN ({_sql_list(v.CHORE_MODES)})),
+    east_chore_mode            TEXT NOT NULL DEFAULT '{v.CHORE_FULL}'
+                               CHECK (east_chore_mode IN ({_sql_list(v.CHORE_MODES)}))
 );
 
 CREATE TABLE car (
@@ -62,7 +75,7 @@ CREATE TABLE car (
     bad_order            INTEGER NOT NULL DEFAULT 0 CHECK (bad_order IN (0, 1)),
     UNIQUE (mark, number),
     CHECK (
-        (loc_kind = '{v.AT_WORLD}' AND loc_ref IN ({_WORLDS}) AND seq IS NULL)
+        (loc_kind = '{v.AT_WORLD}' AND loc_ref IN ({_WORLDS}))
         OR (loc_kind = '{v.AT_YARD}' AND loc_ref IN ({_sql_list(v.YARD_TRACKS)})
             AND seq IS NOT NULL)
         OR (loc_kind = '{v.AT_SPOT}' AND seq IS NULL)
@@ -135,11 +148,18 @@ class Session:
     day: int
     west_chore_done: bool
     east_chore_done: bool
+    westbound_in_yard: bool
     switch_westbound_done: bool
+    westbound_in_west_staging: bool
     local_back: bool
     local_return_done: bool
+    eastbound_in_yard: bool
     switch_eastbound_done: bool
+    eastbound_in_east_staging: bool
     local_has_work: bool
+    next_chore_mode: str = v.CHORE_FULL
+    west_chore_mode: str = v.CHORE_FULL
+    east_chore_mode: str = v.CHORE_FULL
 
 
 @dataclass(frozen=True)
@@ -217,7 +237,9 @@ class PlanEntry:
     engine_id: int | None
 
 
-_SESSION_FLAGS = tuple(f.name for f in fields(Session) if f.name != "day")
+_SESSION_WORDS = ("next_chore_mode", "west_chore_mode", "east_chore_mode")
+_SESSION_FLAGS = tuple(f.name for f in fields(Session)
+                       if f.name != "day" and f.name not in _SESSION_WORDS)
 _CAR_FIELDS = tuple(f.name for f in fields(Car) if f.name != "id")
 _ENGINE_FIELDS = tuple(f.name for f in fields(Engine) if f.name != "id")
 _SPOT_FIELDS = tuple(f.name for f in fields(SpotState))
@@ -347,15 +369,16 @@ class Database:
     def session(self) -> Session:
         row = self._read("SELECT * FROM session WHERE id = 1")[0]
         return Session(
-            day=row["day"], **{flag: bool(row[flag]) for flag in _SESSION_FLAGS}
+            day=row["day"], **{flag: bool(row[flag]) for flag in _SESSION_FLAGS},
+            **{word: row[word] for word in _SESSION_WORDS},
         )
 
     def update_session(self, **changes: int | bool) -> Session:
-        unknown = set(changes) - {"day", *_SESSION_FLAGS}
+        unknown = set(changes) - {"day", *_SESSION_FLAGS, *_SESSION_WORDS}
         if unknown:
             raise ValueError(f"unknown session field(s): {', '.join(sorted(unknown))}")
         if changes:
-            values = {k: int(val) for k, val in changes.items()}
+            values = {k: val if k in _SESSION_WORDS else int(val) for k, val in changes.items()}
             assignments = ", ".join(f"{k} = :{k}" for k in values)
             self._write(f"UPDATE session SET {assignments} WHERE id = 1", values)
         return self.session()
